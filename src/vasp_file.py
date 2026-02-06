@@ -5,9 +5,9 @@ import shutil
 potpaw_PBE_path = Path('/storage/group/xvw5285/default/ATAT/vasp_pots/potpaw_PBE.54/')
 semicore = ['Ni', 'Fe', 'Cr']
 
-def strip_split(s: str):
+def strip_split(s: str, sep=None):
     s = s.strip()
-    return s.split()
+    return s.split(sep)
 
 def strip_split_float(s: str):
     s = strip_split(s)
@@ -85,6 +85,25 @@ class VaspIncar(VaspText):
         for i, l in enumerate(self.lines):
             if vasp_kw in l:
                 return i, l
+        return None
+            
+    def add_line(self, line_idx: int, new_line: str):
+        # overwrite keyword if it exists rather than inserting
+        new_line_kw = strip_split(new_line, sep='=')[0]
+        current_line = self.check_by_keyword(new_line_kw)
+        if current_line is None:
+            super().add_line(line_idx, new_line)
+        else:
+            self.overwrite_line(current_line[0], current_line[1])
+
+    def append_line(self, new_line: str):
+        # overwrite keyword if it exists rather than appending
+        new_line_kw = strip_split(new_line, sep='=')[0]
+        current_line = self.check_by_keyword(new_line_kw)
+        if current_line is None:
+            super().append_line(new_line)
+        else:
+            self.overwrite_line(current_line[0], current_line[1])
 
 class VaspPoscar(VaspText):
     def decode_comment(self):
