@@ -16,8 +16,8 @@ class ContcarEventHandler(FileSystemEventHandler):
         self.steps_dir.mkdir()
     
     def _copy_contcar(self):
-        new_contcar = self.contcar_path.copy_into(self.steps_dir)
-        new_contcar.rename(f'{new_contcar.name}_{self.step_idx}')
+        new_contcar_path = self.steps_dir / f'CONTCAR_{self.step_idx}'
+        shutil.copyfile(self.contcar_path, new_contcar_path)
         self.step_idx += 1
 
     def on_created(self, event):
