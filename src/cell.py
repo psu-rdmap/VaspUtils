@@ -1,6 +1,6 @@
 from pathlib import Path
 import numpy as np
-import subprocess, shutil
+import subprocess, shutil, time, os
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from vasp_file import vasp_file_types, vasp_output_file_types, VaspFile, VaspText, VaspIncar, VaspPoscar, VaspPotcar, VaspOutcar, VaspContcar
@@ -14,22 +14,14 @@ class ContcarEventHandler(FileSystemEventHandler):
         if self.steps_dir.exists():
             shutil.rmtree(self.steps_dir)
         self.steps_dir.mkdir()
-        self.created = False
-    
-    def _copy_contcar(self):
-        new_contcar_path = self.steps_dir / f'CONTCAR_{self.step_idx}'
-        shutil.copyfile(self.contcar_path, new_contcar_path)
-        self.step_idx += 1
-
-    def on_created(self, event):
-        """Triggered when VASP is started."""
-        self._copy_contcar()
-        self.created = True
 
     def on_modified(self, event):
-        """Triggered when ionic steps occur after electronic optimization."""
-        if self.created:
-            self._copy_contcar()
+        """When the cell directory is updated, check if it is due to the CONTCAR. If so, copy it."""
+        if Path(event.src_path).resolve() == self.contcar_path:
+            time.sleep(1)
+            new_contcar_path = self.steps_dir / f'CONTCAR_{self.step_idx}'
+            shutil.copyfile(self.contcar_path, new_contcar_path)
+            self.step_idx += 1
 
 class Cell:
     """A supercell in VASP."""
