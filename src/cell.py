@@ -93,10 +93,10 @@ class Cell:
 
         # open vasp in parallel, save CONTCAR when it gets updated, and then cleanup
         vasp_out = open(self.dir / 'vasp.out', 'w')
-        vasp = subprocess.Popen(self.vasp_command, cwd=self.dir, stdout=out, stderr=subprocess.STDOUT)
+        vasp = subprocess.Popen(self.vasp_command, cwd=self.dir, stdout=vasp_out, stderr=subprocess.STDOUT)
         step_idx = 0
         while vasp.poll() is None:
-            if self.contcar.check_updated():
+            if self.contcar.check_updated() and self.contcar.exists:
                 self.contcar.write_to_file(steps_dir / f'CONTCAR_{step_idx}')
             time.sleep(1)
         vasp.wait()

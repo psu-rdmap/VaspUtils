@@ -27,7 +27,7 @@ class VaspFile:
     """A input/output VASP file."""
     def __init__(self, path: Path):
         self.path = path
-        self.exists = None
+        self.exists = False
         self.update_existence()
 
     def update_existence(self):
@@ -44,6 +44,10 @@ class VaspText(VaspFile):
     def __init__(self, path: Path):
         super().__init__(path)
         self.lines = None
+        self.update_existence()
+
+    def update_existence(self):
+        super().update_existence()
         if self.exists:
             self.load_from_file()
 
