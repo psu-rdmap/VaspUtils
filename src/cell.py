@@ -54,6 +54,7 @@ class Cell:
         self.delete_vasp_file(self.poscar)
         self.contcar.write_to_file(self.poscar.path)
         self.set_poscar(VaspPoscar(self.dir / 'POSCAR'))
+        self.delete_vasp_file(self.contcar)
 
     def delete_vasp_file(self, vasp_file: VaspFile):
         vasp_file.path.unlink(missing_ok=True)
@@ -87,10 +88,11 @@ class Cell:
         self.kpoints.remove_file_suffix()
 
         # initialize a CONTCAR object and the steps directory
+        self.poscar.write_to_file(steps_dir / 'CONTCAR')
         self.contcar = VaspContcar(self.dir / 'CONTCAR')
         steps_dir = self.dir / 'steps'
         steps_dir.mkdir()
-
+        
         # open vasp in parallel, save CONTCAR when it gets updated, and then cleanup
         vasp_out = open(self.dir / 'vasp.out', 'w')
         vasp = subprocess.Popen(self.vasp_command, cwd=self.dir, stdout=vasp_out, stderr=subprocess.STDOUT)
@@ -99,7 +101,7 @@ class Cell:
             time.sleep(1)
             if self.contcar.check_updated() and self.contcar.exists:
                 self.contcar.write_to_file(steps_dir / f'CONTCAR_{step_idx}')
-                steps_idx += 1
+                step_idx += 1
         vasp.wait()
         vasp_out.close()
 
@@ -138,6 +140,8 @@ def copy_from_cell(cell: Cell, dest_dir: Path):
 
 def cleanup_vasp_output(cell: Cell):
     for vfn in vasp_output_file_types.keys():
+        if vfn == 'OUTCAR':
+            continue
         vf = getattr(cell, vfn.lower())
         cell.delete_vasp_file(vf)
     # other files

@@ -124,6 +124,9 @@ def point_defect(cell: Cell, defect_type: str, incar: VaspIncar = None):
     if istart_line:
         defect_cell.incar.remove_line(istart_line[0])
 
+    # remove VASP output files from previous relaxation
+    cleanup_vasp_output(defect_cell)
+
     # run VASP
     defect_cell.run_vasp()
 
