@@ -1,7 +1,32 @@
 from pathlib import Path
 import numpy as np
-import subprocess
+import subprocess, shutil
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 from vasp_file import vasp_file_types, vasp_output_file_types, VaspFile, VaspText, VaspIncar, VaspPoscar, VaspPotcar, VaspOutcar, VaspContcar
+
+class ContcarEventHandler(FileSystemEventHandler):
+    """Handler for detecting changes to the CONTCAR VASP output file so the ion movement can be visualized."""
+    def __init__(self, contcar_path: Path):
+        self.contcar_path = contcar_path
+        self.step_idx = 0
+        self.steps_dir = contcar_path.parent
+        if self.steps_dir.exists():
+            shutil.rmtree(self.steps_dir)
+        self.steps_dir.mkdir()
+    
+    def _copy_contcar(self):
+        new_contcar = self.contcar_path.copy_into(self.steps_dir)
+        new_contcar.rename(f'{new_contcar.name}_{self.step_idx}')
+        self.step_idx += 1
+
+    def on_created(self, event):
+        """Triggered when VASP is started."""
+        self._copy_contcar()
+
+    def on_modified(self, event):
+        """Triggered when ionic steps occur after electronic optimization."""
+        self._copy_contcar()
 
 class Cell:
     """A supercell in VASP."""
@@ -86,14 +111,22 @@ class Cell:
         self.incar.remove_file_suffix()
         self.poscar.remove_file_suffix()
         self.kpoints.remove_file_suffix()
-        
-        # run vasp
+
+        # create observer to watch for CONTCAR creation and updates
+        contcar_watch_path = self.dir / 'CONTCAR'
+        contcar_observer = Observer()
+        contcar_observer.schedule(ContcarEventHandler(contcar_watch_path), self.dir)
+        contcar_observer.start()
+
+        # run VASP and stop the observer when finished
         with open(self.dir / 'vasp.out', 'w') as out:
             subprocess.run(self.vasp_command, cwd=self.dir, stdout=out, stderr=subprocess.STDOUT)
-        
+        contcar_observer.stop()
+        contcar_observer.join()
+
         # run vasp again with k-space projection to get exact energy
         self.incar.append_line('ISTART = 1\n')
-        self.incar.append_line('LREAL = .False\n')
+        self.incar.append_line('LREAL = .False.\n')
         # if magnetic moments are in the INCAR, also add LORBIT=10 to get magnetic moments in OUTCAR
         if self.incar.check_by_keyword('MAGMOM'):
             self.incar.append_line('LORBIT = 10\n')
