@@ -88,7 +88,7 @@ class Cell:
         self.kpoints.remove_file_suffix()
 
         # initialize a CONTCAR object and the steps directory
-        self.poscar.write_to_file(steps_dir / 'CONTCAR')
+        self.poscar.write_to_file(self.dir / 'CONTCAR')
         self.contcar = VaspContcar(self.dir / 'CONTCAR')
         steps_dir = self.dir / 'steps'
         steps_dir.mkdir()
