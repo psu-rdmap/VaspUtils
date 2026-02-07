@@ -199,6 +199,7 @@ class VaspContcar(VaspPoscar):
             new_mtime = self.path.stat().st_mtime
             if new_mtime != self.mtime:
                 self.mtime = new_mtime
+                self.load_from_file()
                 return True
             else:
                 return False
