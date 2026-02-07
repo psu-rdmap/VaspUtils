@@ -14,6 +14,7 @@ class ContcarEventHandler(FileSystemEventHandler):
         if self.steps_dir.exists():
             shutil.rmtree(self.steps_dir)
         self.steps_dir.mkdir()
+        self.created = False
     
     def _copy_contcar(self):
         new_contcar_path = self.steps_dir / f'CONTCAR_{self.step_idx}'
@@ -23,10 +24,12 @@ class ContcarEventHandler(FileSystemEventHandler):
     def on_created(self, event):
         """Triggered when VASP is started."""
         self._copy_contcar()
+        self.created = True
 
     def on_modified(self, event):
         """Triggered when ionic steps occur after electronic optimization."""
-        self._copy_contcar()
+        if self.created:
+            self._copy_contcar()
 
 class Cell:
     """A supercell in VASP."""
