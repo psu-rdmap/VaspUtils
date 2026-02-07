@@ -1,27 +1,7 @@
 from pathlib import Path
 import numpy as np
 import subprocess, shutil, time, os
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 from vasp_file import vasp_file_types, vasp_output_file_types, VaspFile, VaspText, VaspIncar, VaspPoscar, VaspPotcar, VaspOutcar, VaspContcar
-
-class ContcarEventHandler(FileSystemEventHandler):
-    """Handler for detecting changes to the CONTCAR VASP output file so the ion movement can be visualized."""
-    def __init__(self, contcar_path: Path):
-        self.contcar_path = contcar_path
-        self.step_idx = 0
-        self.steps_dir = contcar_path.parent
-        if self.steps_dir.exists():
-            shutil.rmtree(self.steps_dir)
-        self.steps_dir.mkdir()
-
-    def on_modified(self, event):
-        """When the cell directory is updated, check if it is due to the CONTCAR. If so, copy it."""
-        if Path(event.src_path).resolve() == self.contcar_path:
-            time.sleep(1)
-            new_contcar_path = self.steps_dir / f'CONTCAR_{self.step_idx}'
-            shutil.copyfile(self.contcar_path, new_contcar_path)
-            self.step_idx += 1
 
 class Cell:
     """A supercell in VASP."""
@@ -107,17 +87,20 @@ class Cell:
         self.poscar.remove_file_suffix()
         self.kpoints.remove_file_suffix()
 
-        # create observer to watch for CONTCAR creation and updates
-        contcar_watch_path = self.dir / 'CONTCAR'
-        contcar_observer = Observer()
-        contcar_observer.schedule(ContcarEventHandler(contcar_watch_path), self.dir)
-        contcar_observer.start()
+        # initialize a CONTCAR object and the steps directory
+        self.contcar = VaspContcar(self.dir / 'CONTCAR')
+        steps_dir = self.dir / 'steps'
 
-        # run VASP and stop the observer when finished
-        with open(self.dir / 'vasp.out', 'w') as out:
-            subprocess.run(self.vasp_command, cwd=self.dir, stdout=out, stderr=subprocess.STDOUT)
-        contcar_observer.stop()
-        contcar_observer.join()
+        # open vasp in parallel, save CONTCAR when it gets updated, and then cleanup
+        vasp_out = open(self.dir / 'vasp.out', 'w')
+        vasp = subprocess.Popen(self.vasp_command, cwd=self.dir, stdout=out, stderr=subprocess.STDOUT)
+        step_idx = 0
+        while vasp.poll() is None:
+            if self.contcar.check_updated():
+                self.contcar.write_to_file(steps_dir / f'CONTCAR_{step_idx}')
+            time.sleep(1)
+        vasp.wait()
+        vasp_out.close()
 
         # run vasp again with k-space projection to get exact energy
         self.incar.append_line('ISTART = 1\n')
@@ -129,7 +112,7 @@ class Cell:
             subprocess.run(self.vasp_command, cwd=self.dir, stdout=out, stderr=subprocess.STDOUT)
 
         # get volume from contcar
-        self.contcar = VaspContcar(self.dir / 'CONTCAR')
+        self.contcar.load_from_file()
         self.scale_factor = self.contcar.load_scale_factor()
         self.lattice_vectors = self.contcar.load_lattice_vectors()
         self.calculate_volume()

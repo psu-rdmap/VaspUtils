@@ -1,6 +1,6 @@
 from pathlib import Path
 import numpy as np
-import shutil
+import shutil, time
 
 potpaw_PBE_path = Path('/storage/group/xvw5285/default/ATAT/vasp_pots/potpaw_PBE.54/')
 semicore = ['Ni', 'Fe', 'Cr']
@@ -27,8 +27,11 @@ class VaspFile:
     """A input/output VASP file."""
     def __init__(self, path: Path):
         self.path = path
-        self.read_only = True
-        self.exists = self.path.exists()           
+        self.exists = None
+        self.update_existence()
+
+    def update_existence(self):
+        self.exists = self.path.exists()
 
 class VaspBinary(VaspFile):
     """A binary VASP file which can not be read with open()."""
@@ -40,7 +43,6 @@ class VaspText(VaspFile):
     """A VASP file."""
     def __init__(self, path: Path):
         super().__init__(path)
-        self.read_only = False
         self.lines = None
         if self.exists:
             self.load_from_file()
@@ -48,6 +50,7 @@ class VaspText(VaspFile):
     def load_from_file(self):
         with open(self.path, 'r') as f:
             self.lines = f.readlines()
+        self.exists = True
     
     def write_to_file(self, dest_path: Path):
         with open(dest_path, 'w') as d:
@@ -182,7 +185,21 @@ class VaspOutcar(VaspText):
         return float(magmom)
 
 class VaspContcar(VaspPoscar):
-    pass
+    def __init__(self, path: Path):
+        super().__init__(path)
+        self.mtime = 0
+
+    def check_updated(self):
+        # copy CONTCAR if it exists and it has been updated
+        if self.exists:
+            new_mtime = self.path.stat().st_mtime
+            if new_mtime != self.mtime:
+                self.mtime = new_mtime
+                return True
+            else:
+                return False
+        else:
+            self.update_existence()
 
 vasp_input_file_types = {
         'INCAR': VaspIncar,
