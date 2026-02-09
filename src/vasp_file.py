@@ -136,7 +136,7 @@ class VaspPoscar(VaspText):
         if as_df:
             ion_positions = pd.DataFrame(columns=['x', 'y', 'z'])
             for l in self.lines[8:8+sum(amounts)]:
-                ion_positions = pd.concat([ion_positions, np.array(strip_split(l, item_type=float))])
+                ion_positions.loc[len(ion_positions)] = np.array(strip_split(l, item_type=float))
         else:
             ion_positions = []
             for l in self.lines[8:8+sum(amounts)]:
