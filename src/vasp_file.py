@@ -96,6 +96,10 @@ class VaspIncar(VaspText):
             self.overwrite_line(current_line[0], current_line[1])
 
 class VaspPoscar(VaspText):
+    def __init__(self, path: Path):
+        super().__init__(path)
+        self.ion_positions = []
+
     def decode_comment(self):
         lattice_type, supercell_shape = None, None
         comment_line = strip_split(self.lines[0])
@@ -130,12 +134,17 @@ class VaspPoscar(VaspText):
                 species_list += [s]*a
         return species, amounts, species_list
 
-    def check_by_position(self, position: list[float]):
+    def load_ion_positions(self):
         _, amounts, _ = self.load_species()
-        for i, l in enumerate(self.lines[8:8+sum(amounts)]):
-            arr_1 = np.array(strip_split(l, item_type=float))
-            arr_2 = np.array(position)
-            if all(np.isclose(arr_1, arr_2, atol=1e-3)):
+        for l in self.lines[8:8+sum(amounts)]:
+            self.ion_positions.append(np.array(strip_split(l, item_type=float)))
+            
+    def check_by_position(self, position: list[float]):
+        if not len(self.ion_positions):
+            self.load_ion_positions()
+        for i, l in enumerate(self.ion_positions):
+            check_arr = np.array(position)
+            if all(np.isclose(l, check_arr, atol=1e-3)):
                 return i+8, l
                 
 class VaspPotcar(VaspText):
