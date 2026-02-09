@@ -1,6 +1,7 @@
 from pathlib import Path
+import pandas as pd
 import numpy as np
-import shutil, time
+import shutil
 from utils import strip_split
 
 potpaw_PBE_path = Path('/storage/group/xvw5285/default/ATAT/vasp_pots/potpaw_PBE.54/')
@@ -96,10 +97,6 @@ class VaspIncar(VaspText):
             self.overwrite_line(current_line[0], current_line[1])
 
 class VaspPoscar(VaspText):
-    def __init__(self, path: Path):
-        super().__init__(path)
-        self.ion_positions = []
-
     def decode_comment(self):
         lattice_type, supercell_shape = None, None
         comment_line = strip_split(self.lines[0])
@@ -134,15 +131,19 @@ class VaspPoscar(VaspText):
                 species_list += [s]*a
         return species, amounts, species_list
 
-    def load_ion_positions(self):
+    def load_ion_positions(self, as_df=False):
+        if as_df:
+            ion_positions = pd.DataFrame(columns=['x', 'y', 'z'])
+        else:
+            ion_positions = []
         _, amounts, _ = self.load_species()
         for l in self.lines[8:8+sum(amounts)]:
-            self.ion_positions.append(np.array(strip_split(l, item_type=float)))
+            ion_positions.append(np.array(strip_split(l, item_type=float)))
+        return ion_positions
             
     def check_by_position(self, position: list[float]):
-        if not len(self.ion_positions):
-            self.load_ion_positions()
-        for i, l in enumerate(self.ion_positions):
+        ion_positions = self.load_ion_positions()
+        for i, l in enumerate(ion_positions):
             check_arr = np.array(position)
             if all(np.isclose(l, check_arr, atol=1e-3)):
                 return i+8, l
