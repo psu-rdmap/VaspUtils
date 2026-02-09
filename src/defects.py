@@ -2,8 +2,9 @@ from pathlib import Path
 import numpy as np
 import argparse, os
 from ase.units import kJ
-from cell import Cell, copy_from_cell, cleanup_vasp_output
-from vasp_file import tilps, VaspText, VaspIncar, VaspPoscar
+from cell import Cell
+from vasp_file import VaspIncar
+from utils import copy_from_cell, tilps, cleanup_vasp_output
 
 # user input
 parser = argparse.ArgumentParser()

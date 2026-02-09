@@ -1,27 +1,10 @@
 from pathlib import Path
 import numpy as np
 import shutil, time
+from utils import strip_split
 
 potpaw_PBE_path = Path('/storage/group/xvw5285/default/ATAT/vasp_pots/potpaw_PBE.54/')
 semicore = ['Ni', 'Fe', 'Cr']
-
-def strip_split(s: str, sep=None):
-    s = s.strip()
-    return s.split(sep)
-
-def strip_split_float(s: str):
-    s = strip_split(s)
-    return [float(x) for x in s]
-
-def strip_split_int(s: str):
-    s = strip_split(s)
-    return [int(x) for x in s]
-
-def tilps(list_str: list[str], sep: str = ' '):
-    s = ''
-    for l in list_str:
-        s += str(l) + sep
-    return s
 
 class VaspFile:
     """A input/output VASP file."""
@@ -134,13 +117,13 @@ class VaspPoscar(VaspText):
     def load_lattice_vectors(self):
         lattice_vectors = []
         for l in self.lines[2:5]:
-            lv = strip_split_float(l)
+            lv = strip_split(l, item_type=float)
             lattice_vectors.append(lv)
         return np.array(lattice_vectors)
     
     def load_species(self):
         species = strip_split(self.lines[5])
-        amounts = strip_split_int(self.lines[6])
+        amounts = strip_split(self.lines[6], item_type=int)
         species_list = []
         for s in species:
             for a in amounts:
@@ -150,7 +133,7 @@ class VaspPoscar(VaspText):
     def check_by_position(self, position: list[float]):
         _, amounts, _ = self.load_species()
         for i, l in enumerate(self.lines[8:8+sum(amounts)]):
-            arr_1 = np.array(strip_split_float(l))
+            arr_1 = np.array(strip_split(l, item_type=float))
             arr_2 = np.array(position)
             if all(np.isclose(arr_1, arr_2, atol=1e-3)):
                 return i+8, l

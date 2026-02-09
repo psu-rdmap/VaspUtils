@@ -1,22 +1,8 @@
 from pathlib import Path
-import numpy as np
 import argparse, os
 from ase.eos import EquationOfState
 from ase.units import kJ
 from cell import Cell, copy_from_cell
-
-# user input
-parser = argparse.ArgumentParser()
-parser.add_argument('--dir', type=str, help='Path to directory with INCAR, POSCAR, KPOINTS files')
-parser.add_argument('--incar', type=str, default='INCAR', help='(Default: INCAR) Specific INCAR file to load')
-parser.add_argument('--kpoints', type=str, default='KPOINTS', help='(Default: KPOINTS) Specific KPOINTS file to load')
-parser.add_argument('--poscar', type=str, default='POSCAR', help='(Default: POSCAR) Specific POSCAR file to load')
-parser.add_argument('--cores', type=int, default=8, help='(Default: 8) Number of cores to run VASP with')
-args = parser.parse_args()
-
-num_cpus_available = int(os.environ.get("SLURM_NTASKS", 1))
-assert args.cores > 0, f'Number of requested cores must be greater than 0.'
-assert args.cores <= num_cpus_available, f'Too many requested cores ({num_cpus_available} available).'
 
 def relax(cell: Cell):
     """Return the relaxed input cell."""
@@ -59,6 +45,20 @@ def relax(cell: Cell):
     return eq_cell
        
 if __name__ == '__main__':
+
+    # user input
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dir', type=str, help='Path to directory with INCAR, POSCAR, KPOINTS files')
+    parser.add_argument('--incar', type=str, default='INCAR', help='(Default: INCAR) Specific INCAR file to load')
+    parser.add_argument('--kpoints', type=str, default='KPOINTS', help='(Default: KPOINTS) Specific KPOINTS file to load')
+    parser.add_argument('--poscar', type=str, default='POSCAR', help='(Default: POSCAR) Specific POSCAR file to load')
+    parser.add_argument('--cores', type=int, default=8, help='(Default: 8) Number of cores to run VASP with')
+    args = parser.parse_args()
+
+    num_cpus_available = int(os.environ.get("SLURM_NTASKS", 1))
+    assert args.cores > 0, f'Number of requested cores must be greater than 0.'
+    assert args.cores <= num_cpus_available, f'Too many requested cores ({num_cpus_available} available).'
+
     main_dir = Path(args.dir).resolve()
     assert main_dir.exists(), f'[{main_dir}] Directory does not exist.'
     
