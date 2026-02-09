@@ -1,7 +1,3 @@
-from pathlib import Path
-from cell import Cell
-from vasp_file import vasp_file_types, vasp_output_file_types
-
 def strip_split(s: str, sep=None, item_type=None):
     s = s.strip()
     if item_type is int:

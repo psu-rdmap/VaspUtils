@@ -132,13 +132,15 @@ class VaspPoscar(VaspText):
         return species, amounts, species_list
 
     def load_ion_positions(self, as_df=False):
+        _, amounts, _ = self.load_species()
         if as_df:
             ion_positions = pd.DataFrame(columns=['x', 'y', 'z'])
+            for l in self.lines[8:8+sum(amounts)]:
+                ion_positions = pd.concat([ion_positions, np.array(strip_split(l, item_type=float))])
         else:
             ion_positions = []
-        _, amounts, _ = self.load_species()
-        for l in self.lines[8:8+sum(amounts)]:
-            ion_positions.append(np.array(strip_split(l, item_type=float)))
+            for l in self.lines[8:8+sum(amounts)]:
+                ion_positions.append(np.array(strip_split(l, item_type=float)))
         return ion_positions
             
     def check_by_position(self, position: list[float]):

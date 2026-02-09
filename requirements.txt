@@ -2,4 +2,4 @@ numpy==2.0.2
 watchdog==6.0.0
 ase==3.26.0
 plotly==6.5.2
-pandas==3.0.0
+pandas==2.3.3
