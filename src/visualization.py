@@ -1,28 +1,117 @@
 from pathlib import Path
 import argparse
-from vasp_file import VaspContcar
+from vasp_file import VaspPoscar, VaspContcar
 import plotly.express as px
+import plotly.io as pio
 import pandas as pd
+
+def build_dataframe(contcar: VaspContcar, ref_poscar: VaspPoscar = None):
+    """Loads the positions, species type, and defect type into a Pandas DataFrame using CONTCAR_0."""
+    df = contcar.load_ion_positions(as_df=True)
+
+    # add species column to df
+    _, _, species_list = contcar.load_species()
+    df['species'] = species_list
+
+    # add defect column to df
+    df['defect'] = [False]*len(df)
+    if ref_poscar is not None:
+        # determine defects
+        ref_ion_positions = [el.tolist() for el in ref_poscar.load_ion_positions()]
+        contcar_ion_positions = [el.tolist() for el in contcar.load_ion_positions()]
+        defect_type = len(ref_ion_positions) - len(contcar_ion_positions)
+
+        # vacancy (add species)
+        if defect_type == 1:
+            for ion in ref_ion_positions:
+                if ion not in contcar_ion_positions:
+                    df.loc[len(df)] = ion + ['vac', True]
+
+        # interstitial (change defect to True)
+        elif defect_type == -1:
+            for ion in contcar_ion_positions:
+                if ion not in ref_ion_positions:
+                    x, y, z = ion
+                    idx = df.index[(df['x'] == x) & (df['y'] == y) & (df['z'] == z)][0]
+                    df.loc[idx, 'defect'] = True
+
+        # add atoms at boundaries
+        for idx, row in df.iterrows():
+            *coords, species, defect = list(row)
+            new_rows, branches = set(), []
+            coords = tuple(coords) # ensures immutability and is hashable (can be added to sets)
+
+            # there are zeros -> add extra ions at opposite boundaries to reflect PBCs
+            if any(c == 0 for c in coords):
+                branches.append(coords)
+                while len(branches):
+                    # load most previously saved branch
+                    current_coords = branches[-1]
+                    branches.pop(-1)
+                    num_zeros_in_coords = len([c for c in current_coords if c == 0])
+                    
+                    # only one coord to flip in current coords
+                    if num_zeros_in_coords == 1:
+                        # flip the 0 and save it
+                        new_coords = list(current_coords)
+                        for c in range(3):
+                            if new_coords[c] == 0:
+                                new_coords[c] += 1
+                        new_coords = tuple(new_coords)
+                        new_rows.add(new_coords)
+
+                    # more than one zero -> flip each 0 individually, add to branches
+                    else:
+                        for c in range(3):
+                            if current_coords[c] == 0:
+                                new_coords = list(current_coords)
+                                new_coords[c] += 1
+                                new_coords = tuple(new_coords)
+                                branches.append(new_coords)
+                                new_rows.add(new_coords)
+            
+            # append extra ions to DataFrame
+            for ion in list(new_rows):
+                df.loc[len(df)] = list(ion) + [species, defect]
+
+    return df
+
+def update_dataframe(prev_df: pd.DataFrame, next_contcar: VaspContcar):
+    pass
 
 if __name__ == '__main__':
 
     # user input
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dir', type=str, help='Path to directory with VASP CONTCAR steps')
+    parser.add_argument('--dir', type=str, help='Path to directory containing relaxed cell with point defect. Must contain steps/')
+    parser.add_argument('--defective', type=str, default=False, help='(Default: False) Flag indicating the presence of a point defect in the CONTCAR files')
     args = parser.parse_args()
 
+    # define/check paths
+    main_dir = Path(args.dir).resolve()
+    steps_dir = main_dir / 'steps'
+    assert steps_dir.exists(), f'[{steps_dir}] Directory does not exist'
+    if args.defective:
+        defect_free_poscar_path = Path(main_dir).parent / 'POSCAR'
+        assert defect_free_poscar_path.exists(), f'[{defect_free_poscar_path}] Defect-free POSCAR file does not exist'
+        ref_poscar = VaspPoscar(defect_free_poscar_path)
+    else:
+        ref_poscar = None
+
     # load ion positions in files with CONTCAR_X format
-    steps_dir = Path(args.dir).resolve()
     steps = {}
     for fp in steps_dir.iterdir():
         fn = fp.name
         if fn[:8] == 'CONTCAR_':
-            contcar = VaspContcar(fp)
-            contcar.load_ion_positions(as_df=True)
-            steps.update({int(fn[-1]): contcar.ion_positions})
+            steps.update({int(fn[8:]): fp})
     if len(steps) == 0:
-        raise FileNotFoundError(f'[{steps_dir}] Could not find any files with CONTCAR_X format')
+        raise FileNotFoundError(f'[{steps_dir}] Could not find any files following CONTCAR_X format')
     
+    # initialize cell and update it over time
+    steps[0] = build_dataframe(VaspContcar(steps[0]), ref_poscar=ref_poscar)
+    for i in range(1, len(steps)):
+        update_dataframe(steps[i-1], VaspContcar(steps[i]))
+
     # plot CONTCAR
-    fig = px.scatter_3d(steps[0])
-    fig.show()
+    fig = px.scatter_3d(data_frame=steps[0], x='x', y='y', z='z')
+    pio.write_html(fig, file='relax.html')
