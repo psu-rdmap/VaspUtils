@@ -3,7 +3,45 @@ import argparse
 from vasp_file import VaspPoscar, VaspContcar
 import plotly.express as px
 import plotly.io as pio
+import plotly.graph_objects as go
 import pandas as pd
+from math import isclose
+
+def reflect_periodicity(coords: list[float]):
+    """Given coordinates for an ion, find all ions at the next boundary to complete the cell."""
+    new_rows, branches = set(), []
+    coords = tuple(coords) # ensures immutability and is hashable (can be added to sets)
+
+    # there are zeros -> add extra ions at opposite boundaries to reflect PBCs
+    if any(isclose(c, 0, abs_tol=1e-2) for c in coords):
+        branches.append(coords)
+        while len(branches):
+            # load most previously saved branch
+            current_coords = branches[-1]
+            branches.pop(-1)
+            num_zeros_in_coords = len([c for c in current_coords if isclose(c, 0, abs_tol=1e-2)])
+            
+            # only one coord to flip in current coords
+            if num_zeros_in_coords == 1:
+                # flip the 0 and save it
+                new_coords = list(current_coords)
+                for c in range(3):
+                    if isclose(new_coords[c], 0, abs_tol=1e-2):
+                        new_coords[c] += 1
+                new_coords = tuple(new_coords)
+                new_rows.add(new_coords)
+
+            # more than one zero -> flip each 0 individually, add to branches
+            else:
+                for c in range(3):
+                    if isclose(current_coords[c], 0, abs_tol=1e-2):
+                        new_coords = list(current_coords)
+                        new_coords[c] += 1
+                        new_coords = tuple(new_coords)
+                        branches.append(new_coords)
+                        new_rows.add(new_coords)
+        
+    return new_rows
 
 def build_dataframe(contcar: VaspContcar, ref_poscar: VaspPoscar = None):
     """Loads the positions, species type, and defect type into a Pandas DataFrame using CONTCAR_0."""
@@ -35,49 +73,17 @@ def build_dataframe(contcar: VaspContcar, ref_poscar: VaspPoscar = None):
                     idx = df.index[(df['x'] == x) & (df['y'] == y) & (df['z'] == z)][0]
                     df.loc[idx, 'defect'] = True
 
-        # add atoms at boundaries
-        for idx, row in df.iterrows():
-            *coords, species, defect = list(row)
-            new_rows, branches = set(), []
-            coords = tuple(coords) # ensures immutability and is hashable (can be added to sets)
-
-            # there are zeros -> add extra ions at opposite boundaries to reflect PBCs
-            if any(c == 0 for c in coords):
-                branches.append(coords)
-                while len(branches):
-                    # load most previously saved branch
-                    current_coords = branches[-1]
-                    branches.pop(-1)
-                    num_zeros_in_coords = len([c for c in current_coords if c == 0])
-                    
-                    # only one coord to flip in current coords
-                    if num_zeros_in_coords == 1:
-                        # flip the 0 and save it
-                        new_coords = list(current_coords)
-                        for c in range(3):
-                            if new_coords[c] == 0:
-                                new_coords[c] += 1
-                        new_coords = tuple(new_coords)
-                        new_rows.add(new_coords)
-
-                    # more than one zero -> flip each 0 individually, add to branches
-                    else:
-                        for c in range(3):
-                            if current_coords[c] == 0:
-                                new_coords = list(current_coords)
-                                new_coords[c] += 1
-                                new_coords = tuple(new_coords)
-                                branches.append(new_coords)
-                                new_rows.add(new_coords)
-            
-            # append extra ions to DataFrame
-            for ion in list(new_rows):
-                df.loc[len(df)] = list(ion) + [species, defect]
-
     return df
 
 def update_dataframe(prev_df: pd.DataFrame, next_contcar: VaspContcar):
-    pass
+    # update ion positions
+    new_ion_positions = next_contcar.load_ion_positions()
+    new_df = prev_df.copy()
+    for i, ion in enumerate(new_ion_positions):
+        new_df.loc[new_df.index[i], 'x'] = ion[0]
+        new_df.loc[new_df.index[i], 'y'] = ion[1]
+        new_df.loc[new_df.index[i], 'z'] = ion[2]
+    return new_df
 
 if __name__ == '__main__':
 
@@ -110,8 +116,79 @@ if __name__ == '__main__':
     # initialize cell and update it over time
     steps[0] = build_dataframe(VaspContcar(steps[0]), ref_poscar=ref_poscar)
     for i in range(1, len(steps)):
-        update_dataframe(steps[i-1], VaspContcar(steps[i]))
+        steps[i] = update_dataframe(steps[i-1], VaspContcar(steps[i]))
+    
+    # add ions at periodic boundary conditions
+    for i in range(len(steps)):
+        # add atoms at boundaries
+        for idx, row in steps[i].iterrows():
+            *coords, species, defect = list(row)
+            new_coords = reflect_periodicity(coords)
+            # append extra ions to DataFrame
+            for ion in list(new_coords):
+                steps[i].loc[len(steps[i])] = list(ion) + [species, defect]
 
-    # plot CONTCAR
-    fig = px.scatter_3d(data_frame=steps[0], x='x', y='y', z='z')
-    pio.write_html(fig, file='relax.html')
+    # add colors
+    for i in range(len(steps)):
+        colors = []
+        for idx, row in steps[i].iterrows():
+            *coords, species, defect = list(row)
+            if defect:
+                colors.append('red')
+            else:
+                colors.append('blue')
+        steps[i]['color'] = colors
+
+    # individual frames in animation (CONTCAR files)
+    frames = [
+        go.Frame(
+            name=str(i),
+            data=go.Scatter3d(
+                x=steps[i]['x'], 
+                y=steps[i]['y'], 
+                z=steps[i]['z'], 
+                mode='markers',
+                marker = dict(
+                    color = steps[0]['color'],
+                )
+            ),
+            layout = go.Layout(title_text = f'Step: {i+1}'),
+        )
+        for i in range(len(steps))
+    ]
+
+    # layout with title and buttons
+    layout = go.Layout(
+        title_text = 'Step: 1',
+        updatemenus = [dict(
+            type = 'buttons',
+            buttons = [
+                dict(
+                    label = 'Play',
+                    method = 'animate',
+                    args = [
+                        None,
+                        dict(
+                            frame = dict(duration = 50, redraw = False),
+                            transition = dict(duration = 0),
+                            fromcurrent = True,
+                        ),
+                    ]
+                ),
+                
+            ]
+        )],
+        scene_camera=dict(
+            eye = dict(x=0, y=2, z=0)
+        )
+    )
+
+    # create figure
+    fig = go.Figure(
+        data = frames[0].data,
+        layout = layout,
+        frames = frames,
+    )   
+
+    # save as html for viewing in browser
+    pio.write_html(fig, file=steps_dir / 'relax.html')
