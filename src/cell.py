@@ -5,14 +5,15 @@ from vasp_file import vasp_file_types, vasp_output_file_types, VaspFile, VaspTex
 
 class Cell:
     """A supercell in VASP."""
-    def __init__(self, in_dir: Path, cores: int, incar_fn='INCAR', poscar_fn='POSCAR', kpoints_fn='KPOINTS'):
+    def __init__(self, in_dir: Path, nodes: int = None, tasks: int = None, incar_fn = 'INCAR', poscar_fn = 'POSCAR', kpoints_fn = 'KPOINTS'):
         # input directory must exist
         self.dir = in_dir
         assert self.dir.exists(), f'[self.dir] Could not find directory'
         
         # set vasp command
-        self.cores = cores
-        self.vasp_command = ['srun', '--export=All', '-N 1', '-n', str(self.cores),  'vasp_std']
+        self.nodes = nodes
+        self.tasks = tasks
+        self.vasp_command = ['srun', '--export=All', '-N', str(self.nodes),'-n', str(self.tasks), 'vasp_std']
 
         # vasp input files
         self.incar = VaspIncar(self.dir / incar_fn)        
@@ -136,7 +137,7 @@ def copy_from_cell(cell: Cell, dest_dir: Path):
             vf = getattr(cell, vfn.lower())
             if vf.exists:
                 vf.write_to_file(dest_dir / vfn)
-    return Cell(dest_dir, cell.cores)
+    return Cell(dest_dir, nodes=cell.nodes, tasks=cell.tasks)
 
 def cleanup_vasp_output(cell: Cell):
     for vfn in vasp_output_file_types.keys():

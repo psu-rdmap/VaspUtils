@@ -1,3 +1,5 @@
+import os
+
 def strip_split(s: str, sep=None, item_type=None):
     s = s.strip()
     s = s.split(sep)
@@ -15,3 +17,8 @@ def tilps(list_str: list[str], sep: str = ' '):
     for l in list_str:
         s += str(l) + sep
     return s
+
+def check_slurm_var(args_attr, var_name: str):
+    num_requested_resources = int(os.environ.get(var_name, 1))
+    assert args_attr > 0, f'[{var_name}] Number of requested resources must be greater than 0.'
+    assert args_attr <= num_requested_resources, f'[{var_name}] Too many requested resoruces. ({num_requested_resources} available).'

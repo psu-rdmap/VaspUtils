@@ -2,21 +2,9 @@ from pathlib import Path
 import numpy as np
 import argparse, os
 from ase.units import kJ
-from cell import Cell
+from cell import Cell, copy_from_cell, cleanup_vasp_output
 from vasp_file import VaspIncar
-from utils import copy_from_cell, tilps, cleanup_vasp_output
-
-# user input
-parser = argparse.ArgumentParser()
-parser.add_argument('--dir', type=str, help='Path to directory with relaxed INCAR, POSCAR, KPOINTS')
-parser.add_argument('--incar', type=str, default=None, help='(Default: INCAR in --dir) Path to specific INCAR file to load')
-parser.add_argument('--cores', type=int, default=8, help='(Default: 8) Number of cores to run VASP with')
-parser.add_argument('--defect', type=str, help='Type of point defect to add to the cell (vac, int)')
-args = parser.parse_args()
-
-num_cpus_available = int(os.environ.get("SLURM_NTASKS", 1))
-assert args.cores > 0, f'Number of requested cores must be greater than 0'
-assert args.cores <= num_cpus_available, f'Too many requested cores ({num_cpus_available} available)'
+from utils import tilps, check_slurm_var
 
 def point_defect(cell: Cell, defect_type: str, incar: VaspIncar = None):
     """Return the relaxed cell with a point defect added."""
@@ -134,11 +122,24 @@ def point_defect(cell: Cell, defect_type: str, incar: VaspIncar = None):
     return defect_cell
 
 if __name__ == '__main__':
+
+    # user input
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dir', type=str, help='Path to directory with relaxed INCAR, POSCAR, KPOINTS')
+    parser.add_argument('--incar', type=str, default=None, help='(Default: INCAR in --dir) Path to specific INCAR file to load')
+    parser.add_argument('--nodes', type=int, default=1, help='(Default: 1) Number of nodes to run VASP on')
+    parser.add_argument('--tasks', type=int, default=8, help='(Default: 8) Number of parallel processes to run VASP with')
+    parser.add_argument('--defect', type=str, help='Type of point defect to add to the cell (vac, int)')
+    args = parser.parse_args()
+
+    check_slurm_var(args.nodes, 'SLURM_JOB_NUM_NODES')
+    check_slurm_var(args.tasks, 'SLURM_NTASKS')
+
     relax_dir = Path(args.dir).resolve()
     assert relax_dir.exists(), f'[{relax_dir}] Directory does not exist'
     
     # create cell based on relaxed directory
-    relax_cell = Cell(relax_dir, args.cores)
+    relax_cell = Cell(relax_dir, nodes=args.nodes, tasks=args.tasks)
 
     # insert point defect and relax
     if args.incar:

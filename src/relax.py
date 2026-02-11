@@ -3,6 +3,7 @@ import argparse, os
 from ase.eos import EquationOfState
 from ase.units import kJ
 from cell import Cell, copy_from_cell
+from utils import check_slurm_var
 
 def relax(cell: Cell):
     """Return the relaxed input cell."""
@@ -48,22 +49,22 @@ if __name__ == '__main__':
 
     # user input
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dir', type=str, help='Path to directory with INCAR, POSCAR, KPOINTS files')
+    parser.add_argument('--dir', type=str, help='Path to directory to perform relaxation, possibly containing the INCAR, POSCAR, KPOINTS files')
     parser.add_argument('--incar', type=str, default='INCAR', help='(Default: INCAR) Specific INCAR file to load')
     parser.add_argument('--kpoints', type=str, default='KPOINTS', help='(Default: KPOINTS) Specific KPOINTS file to load')
     parser.add_argument('--poscar', type=str, default='POSCAR', help='(Default: POSCAR) Specific POSCAR file to load')
-    parser.add_argument('--cores', type=int, default=8, help='(Default: 8) Number of cores to run VASP with')
+    parser.add_argument('--nodes', type=int, default=1, help='(Default: 1) Number of nodes to run VASP on')
+    parser.add_argument('--tasks', type=int, default=8, help='(Default: 8) Number of parallel processes to run VASP with')
     args = parser.parse_args()
 
-    num_cpus_available = int(os.environ.get("SLURM_NTASKS", 1))
-    assert args.cores > 0, f'Number of requested cores must be greater than 0.'
-    assert args.cores <= num_cpus_available, f'Too many requested cores ({num_cpus_available} available).'
+    check_slurm_var(args.nodes, 'SLURM_JOB_NUM_NODES')
+    check_slurm_var(args.tasks, 'SLURM_NTASKS')
 
     main_dir = Path(args.dir).resolve()
     assert main_dir.exists(), f'[{main_dir}] Directory does not exist.'
     
     # create cell based on main directory
-    main_cell = Cell(main_dir, args.cores, incar_fn=args.incar, poscar_fn=args.poscar, kpoints_fn=args.kpoints)
+    main_cell = Cell(main_dir, nodes=args.nodes, tasks=args.tasks, incar_fn=args.incar, poscar_fn=args.poscar, kpoints_fn=args.kpoints)
 
     # relax main cell
     relax_cell = relax(main_cell)
