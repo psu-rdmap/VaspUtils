@@ -65,7 +65,7 @@ if __name__ == '__main__':
     parser.add_argument('--poscar', type=str, default='POSCAR', help='(Default: POSCAR) Specific POSCAR file to load')
     parser.add_argument('--nodes', type=int, default=1, help='(Default: 1) Number of nodes to run VASP on')
     parser.add_argument('--tasks', type=int, default=8, help='(Default: 8) Number of parallel processes to run VASP with')
-    parser.add_argument('--eos', type=bool, default=True, help='(Default: True) Relax many structures and fit the Murnaghan EoS')
+    parser.add_argument('--eos', action=argparse.BooleanOptionalAction, help='Relax many structures and fit the Murnaghan EoS')
     args = parser.parse_args()
 
     check_slurm_var(args.nodes, 'SLURM_JOB_NUM_NODES')
