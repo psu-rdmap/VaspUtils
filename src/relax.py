@@ -1,13 +1,11 @@
 from pathlib import Path
-import argparse, os
+import argparse
 from ase.eos import EquationOfState
 from ase.units import kJ
 from cell import Cell, copy_from_cell
 from utils import check_slurm_var
 
-def relax(cell: Cell):
-    """Return the relaxed input cell."""
-    # make relax directory
+def make_relax_dir(cell: Cell):
     i = 0
     relax_dir = None
     while relax_dir is None:
@@ -16,6 +14,18 @@ def relax(cell: Cell):
         else:
             relax_dir = cell.dir / f'relax_{i}'
             relax_dir.mkdir()
+    return relax_dir
+
+def simple_relax(cell: Cell):
+    relax_dir = make_relax_dir(cell)
+    current_cell = copy_from_cell(cell, relax_dir)
+    current_cell.run_vasp()
+    return current_cell
+
+def eos_fit(cell: Cell):
+    """Return the relaxed input cell."""
+    # make relax directory
+    relax_dir = make_relax_dir(cell)
     
     # scale up/down volumes
     scale_factors = [0.85, 0.90, 0.95, 1.0, 1.05, 1.10, 1.15]
@@ -55,6 +65,7 @@ if __name__ == '__main__':
     parser.add_argument('--poscar', type=str, default='POSCAR', help='(Default: POSCAR) Specific POSCAR file to load')
     parser.add_argument('--nodes', type=int, default=1, help='(Default: 1) Number of nodes to run VASP on')
     parser.add_argument('--tasks', type=int, default=8, help='(Default: 8) Number of parallel processes to run VASP with')
+    parser.add_argument('--eos', type=bool, default=True, help='(Default: True) Relax many structures and fit the Murnaghan EoS')
     args = parser.parse_args()
 
     check_slurm_var(args.nodes, 'SLURM_JOB_NUM_NODES')
@@ -67,7 +78,10 @@ if __name__ == '__main__':
     main_cell = Cell(main_dir, nodes=args.nodes, tasks=args.tasks, incar_fn=args.incar, poscar_fn=args.poscar, kpoints_fn=args.kpoints)
 
     # relax main cell
-    relax_cell = relax(main_cell)
+    if args.eos:
+        relax_cell = eos_fit(main_cell)
+    else:
+        relax_cell = simple_relax(main_cell)
 
     # print out properties of the main cell
     with open(relax_cell.dir.parent / 'relax.out', 'w') as r:
