@@ -152,43 +152,66 @@ if __name__ == '__main__':
                     color = steps[0]['color'],
                 )
             ),
-            layout = go.Layout(title_text = f'Step: {i+1}'),
+            layout = go.Layout(title_text = f'Step: {i+1}')
         )
         for i in range(len(steps))
     ]
+
+    play_button = dict(
+        label = 'Play',
+        method = 'animate',
+        args = [
+            None,
+            dict(
+                frame = dict(duration = 150, redraw = True),
+                transition = dict(duration = 150),
+                fromcurrent = True,
+            ),
+        ]
+    )
+
+    pause_button = dict(
+        label = 'Pause',
+        method = 'animate',
+        args = [
+            [None],
+            dict(
+                frame = dict(duration = 0, redraw = True),
+                mode = 'immediate',
+                transition = dict(duration = 0),
+            ),
+        ]
+    )
+
+    reset_button = dict(
+        label = 'Reset',
+        method = 'animate',
+        args = [
+            [frames[0].name],
+            dict(
+                frame = dict(duration = 0, redraw = True),
+                transition = dict(duration = 0),
+                mode = 'immediate',
+            ),
+        ]
+    )
 
     # layout with title and buttons
     layout = go.Layout(
         title_text = 'Step: 1',
         updatemenus = [dict(
             type = 'buttons',
-            buttons = [
-                dict(
-                    label = 'Play',
-                    method = 'animate',
-                    args = [
-                        None,
-                        dict(
-                            frame = dict(duration = 50, redraw = False),
-                            transition = dict(duration = 0),
-                            fromcurrent = True,
-                        ),
-                    ]
-                ),
-                
-            ]
+            buttons = [play_button, pause_button, reset_button],
+            showactive = False
         )],
-        scene_camera=dict(
-            eye = dict(x=0, y=2, z=0)
-        )
     )
 
     # create figure
     fig = go.Figure(
         data = frames[0].data,
-        layout = layout,
         frames = frames,
-    )   
+        layout = layout
+    )
 
     # save as html for viewing in browser
-    pio.write_html(fig, file=steps_dir / 'relax.html')
+    pio.write_html(fig, file=steps_dir / 'relax.html', auto_play=False)
