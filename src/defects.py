@@ -32,11 +32,14 @@ def point_defect(cell: Cell, defect_type: str, incar: VaspIncar = None):
 
     # fcc supercells
     if lt == 'fcc_super':
-        supported_supercell_shapes = [[2, 2, 2], [3, 3, 3], [4, 4, 4]]
-        if sc in supported_supercell_shapes:
+        if sc in [[2, 2, 2], [4, 4, 4]]:
             line_idx = defect_cell.poscar.check_by_position([0.5, 0.5, 0.5])[0]
-            int_lines.append('  0.3333333333333333  0.5000000000000000  0.5000000000000000\n')
-            int_lines.append('  0.6666666666666666  0.5000000000000000  0.5000000000000000\n')
+            int_lines.append('  0.4000000000000000  0.5000000000000000  0.5000000000000000\n')
+            int_lines.append('  0.6000000000000000  0.5000000000000000  0.5000000000000000\n')
+        elif sc in [[3, 3, 3]]:
+            line_idx = defect_cell.poscar.check_by_position([0.5, 0.66667, 0.5])[0]
+            int_lines.append('  0.4000000000000000  0.6666666666666667  0.5000000000000000\n')
+            int_lines.append('  0.6000000000000000  0.6666666666666667  0.5000000000000000\n')
         else:
             raise ValueError(err_str)
 
