@@ -112,8 +112,17 @@ class Cell:
         # if magnetic moments are in the INCAR, also add LORBIT=10 to get magnetic moments in OUTCAR
         if self.incar.check_by_keyword('MAGMOM'):
             self.incar.append_line('LORBIT = 10\n')
-        with open(self.dir / 'vasp.out', 'a') as out:
-            subprocess.run(self.vasp_command, cwd=self.dir, stdout=out, stderr=subprocess.STDOUT)
+        
+        # save new CONTCARs
+        vasp_out = open(self.dir / 'vasp.out', 'a')
+        vasp = subprocess.Popen(self.vasp_command, cwd=self.dir, stdout=vasp_out, stderr=subprocess.STDOUT)
+        while vasp.poll() is None:
+            time.sleep(1)
+            if self.contcar.check_updated() and self.contcar.exists:
+                self.contcar.write_to_file(steps_dir / f'CONTCAR_{step_idx}')
+                step_idx += 1
+        vasp.wait()
+        vasp_out.close()
 
         # get volume from contcar
         self.contcar.load_from_file()
