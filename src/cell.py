@@ -13,7 +13,7 @@ class Cell:
         # set vasp command
         self.nodes = nodes
         self.tasks = tasks
-        self.vasp_command = ['srun', '--export=All', '-N', str(self.nodes),'-n', str(self.tasks), 'vasp_std']
+        self.vasp_command = ['srun', '--export=All', '--kill-on-bad-exit', '-N', str(self.nodes),'-n', str(self.tasks), 'vasp_std']
 
         # vasp input files
         self.incar = VaspIncar(self.dir / incar_fn)        
