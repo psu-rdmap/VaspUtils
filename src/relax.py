@@ -28,7 +28,7 @@ def eos_fit(cell: Cell):
     relax_dir = make_relax_dir(cell)
     
     # scale up/down volumes
-    scale_factors = [0.85, 0.90, 0.95, 1.0, 1.05, 1.10, 1.15]
+    scale_factors = [0.96, 0.97, 0.98, 0.99, 1.00, 1.01, 1.02, 1.03, 1.04]
     volumes, energies = [], []
     for i, sf in enumerate(scale_factors):
         # create new cell
