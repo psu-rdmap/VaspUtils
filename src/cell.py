@@ -112,6 +112,10 @@ class Cell:
         # if magnetic moments are in the INCAR, also add LORBIT=10 to get magnetic moments in OUTCAR
         if self.incar.check_by_keyword('MAGMOM'):
             self.incar.append_line('LORBIT = 10\n')
+
+        # update POSCAR
+        self.contcar.write_to_file(self.dir / 'POSCAR')
+        self.set_poscar(VaspPoscar(self.dir / 'POSCAR'))
         
         # save new CONTCARs
         vasp_out = open(self.dir / 'vasp.out', 'a')
