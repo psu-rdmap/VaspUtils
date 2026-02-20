@@ -109,13 +109,19 @@ def point_defect(cell: Cell, defect_type: str, incar: VaspIncar = None):
         m_line = tilps(m_line)
         defect_cell.incar.overwrite_line(m_idx, m_line+'\n')
 
-    # final changes to incar
+    # final changes to incar (removing lines from previous run)
     lorbit_line = defect_cell.incar.check_by_keyword('LORBIT')
+    istart_line = defect_cell.incar.check_by_keyword('ISTART')
+    icharg_line = defect_cell.incar.check_by_keyword('ICHARG')
+    lreal_line = defect_cell.incar.check_by_keyword('LREAL')
     if lorbit_line:
         defect_cell.incar.remove_line(lorbit_line[0])
-    istart_line = defect_cell.incar.check_by_keyword('ISTART')
     if istart_line:
         defect_cell.incar.remove_line(istart_line[0])
+    if icharg_line:
+        defect_cell.incar.remove_line(icharg_line[0])
+    if lreal_line:
+        defect_cell.incar.remove_line(lreal_line[0])
 
     # remove VASP output files from previous relaxation
     cleanup_vasp_output(defect_cell)
