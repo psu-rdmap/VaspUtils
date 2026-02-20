@@ -11,7 +11,7 @@ class Cell:
         assert self.dir.exists(), f'[self.dir] Could not find directory'
         
         # set vasp command
-        self.vasp_command = ['srun', '--kill-on-bad-exit', 'vasp_std']
+        self.vasp_command = ['srun', '--kill-on-bad-exit', '--cpu-bind=cores', 'vasp_std']
 
         # vasp input files
         self.incar = VaspIncar(self.dir / incar_fn)        
