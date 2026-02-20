@@ -1,19 +1,25 @@
 from pathlib import Path
 import numpy as np
-import subprocess, time
+import subprocess, time, os
 from vasp_file import vasp_file_types, vasp_output_file_types, VaspFile, VaspText, VaspIncar, VaspPoscar, VaspPotcar, VaspOutcar, VaspContcar
 
 class Cell:
     """A supercell in VASP."""
-    def __init__(self, in_dir: Path, nodes: int = None, tasks: int = None, incar_fn = 'INCAR', poscar_fn = 'POSCAR', kpoints_fn = 'KPOINTS'):
+    def __init__(self, in_dir: Path, incar_fn = 'INCAR', poscar_fn = 'POSCAR', kpoints_fn = 'KPOINTS'):
         # input directory must exist
         self.dir = in_dir
         assert self.dir.exists(), f'[self.dir] Could not find directory'
         
         # set vasp command
-        self.nodes = nodes
-        self.tasks = tasks
-        self.vasp_command = ['srun', '--export=All', '--kill-on-bad-exit', '-N', str(self.nodes),'-n', str(self.tasks), 'vasp_std']
+        self.vasp_command = [
+            'srun', 
+            '--export=All', 
+            '--kill-on-bad-exit', 
+            '--nodes', os.environ.get("SLURM_JOB_NUM_NODES", 1),
+            '--cpus-per-task', os.environ.get("SLURM_CPUS_PER_TASK", 1),
+            '--ntasks', os.environ.get("SLURM_NTASKS", 1),
+            'vasp_std'
+        ]
 
         # vasp input files
         self.incar = VaspIncar(self.dir / incar_fn)        
@@ -156,7 +162,7 @@ def copy_from_cell(cell: Cell, dest_dir: Path):
             vf = getattr(cell, vfn.lower())
             if vf.exists:
                 vf.write_to_file(dest_dir / vfn)
-    return Cell(dest_dir, nodes=cell.nodes, tasks=cell.tasks)
+    return Cell(dest_dir)
 
 def cleanup_vasp_output(cell: Cell):
     for vfn in vasp_output_file_types.keys():
