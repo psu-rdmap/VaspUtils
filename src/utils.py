@@ -1,5 +1,3 @@
-import os
-
 def strip_split(s: str, sep=None, item_type=None):
     s = s.strip()
     s = s.split(sep)

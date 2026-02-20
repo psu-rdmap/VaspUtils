@@ -1,6 +1,6 @@
 from pathlib import Path
 import numpy as np
-import subprocess, time, os
+import subprocess, time
 from vasp_file import vasp_file_types, vasp_output_file_types, VaspFile, VaspText, VaspIncar, VaspPoscar, VaspPotcar, VaspOutcar, VaspContcar
 
 class Cell:
@@ -11,15 +11,7 @@ class Cell:
         assert self.dir.exists(), f'[self.dir] Could not find directory'
         
         # set vasp command
-        self.vasp_command = [
-            'srun', 
-            '--export=All', 
-            '--kill-on-bad-exit', 
-            '--nodes', os.environ.get("SLURM_JOB_NUM_NODES", 1),
-            '--cpus-per-task', os.environ.get("SLURM_CPUS_PER_TASK", 1),
-            '--ntasks', os.environ.get("SLURM_NTASKS", 1),
-            'vasp_std'
-        ]
+        self.vasp_command = ['srun', '--kill-on-bad-exit', 'vasp_std']
 
         # vasp input files
         self.incar = VaspIncar(self.dir / incar_fn)        
