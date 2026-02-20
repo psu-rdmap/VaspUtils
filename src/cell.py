@@ -109,6 +109,7 @@ class Cell:
         # run vasp again with k-space projection to get exact energy
         self.incar.append_line('ISTART = 1\n')
         self.incar.append_line('LREAL = .False.\n')
+        self.incar.append_line('ICHARG = 1\n')
         # if magnetic moments are in the INCAR, also add LORBIT=10 to get magnetic moments in OUTCAR
         if self.incar.check_by_keyword('MAGMOM'):
             self.incar.append_line('LORBIT = 10\n')
