@@ -103,7 +103,7 @@ class VaspPoscar(VaspText):
         for val in comment_line:
             if val in ['fcc_prim', 'bcc_conv', 'hcp_prim', 'fcc_conv', 'fcc_super', 'bcc_super', 'hcp_super']:
                 lattice_type = val
-            elif val in ['1x1x1', '2x2x2', '3x3x3', '3x3x2']:
+            elif val in ['1x1x1', '2x2x2', '3x3x3', '4x4x4', '3x3x2']:
                 supercell_shape = val.split('x')
                 supercell_shape = [float(v) for v in supercell_shape] 
             else:
