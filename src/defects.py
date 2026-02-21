@@ -111,15 +111,15 @@ def point_defect(cell: Cell, defect_type: str, incar: VaspIncar = None):
 
     # final changes to incar (removing lines from previous run)
     lorbit_line = defect_cell.incar.check_by_keyword('LORBIT')
-    istart_line = defect_cell.incar.check_by_keyword('ISTART')
-    icharg_line = defect_cell.incar.check_by_keyword('ICHARG')
-    lreal_line = defect_cell.incar.check_by_keyword('LREAL')
     if lorbit_line:
         defect_cell.incar.remove_line(lorbit_line[0])
+    istart_line = defect_cell.incar.check_by_keyword('ISTART')
     if istart_line:
         defect_cell.incar.remove_line(istart_line[0])
+    icharg_line = defect_cell.incar.check_by_keyword('ICHARG')
     if icharg_line:
         defect_cell.incar.remove_line(icharg_line[0])
+    lreal_line = defect_cell.incar.check_by_keyword('LREAL')
     if lreal_line:
         defect_cell.incar.overwrite_line(lreal_line[0], 'LREAL = Auto\n')
 
