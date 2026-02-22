@@ -74,16 +74,18 @@ if __name__ == '__main__':
     # relax main cell
     if args.eos:
         relax_cell = eos_fit(main_cell)
+        output_path = relax_cell.dir.parent / 'relax.out'
     else:
         relax_cell = simple_relax(main_cell)
+        output_path = relax_cell.dir / 'relax.out'
 
     # print out properties of the main cell
-    with open(relax_cell.dir.parent / 'relax.out', 'w') as r:
+    with open(output_path, 'w') as r:
         r.write(f'Energy: {relax_cell.energy} eV\n')
         r.write(f'Volume: {relax_cell.volume} A3\n')
         r.write(f'Lattice parameter: {relax_cell.lattice_parameter} A\n')
         r.write(f'Bulk modulus: {relax_cell.bulk_modulus} GPa\n')
         r.write(f'Magnetic moment: {relax_cell.magnetic_moment} uB\n')
-    with open(relax_cell.dir.parent / 'relax.out', 'r') as r:
+    with open(output_path, 'r') as r:
         for l in r.readlines():
             print(l, end='')
