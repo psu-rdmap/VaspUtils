@@ -85,7 +85,7 @@ class VaspIncar(VaspText):
         if current_line is None:
             super().add_line(line_idx, new_line)
         else:
-            self.overwrite_line(current_line[0], current_line[1])
+            self.overwrite_line(*current_line)
 
     def append_line(self, new_line: str):
         # overwrite keyword if it exists rather than appending
@@ -94,7 +94,12 @@ class VaspIncar(VaspText):
         if current_line is None:
             super().append_line(new_line)
         else:
-            self.overwrite_line(current_line[0], current_line[1])
+            self.overwrite_line(*current_line)
+
+    def remove_line(self, vasp_kw: str):
+        current_line = self.check_by_keyword(vasp_kw)
+        if current_line is not None:
+            super().remove_line(current_line[0])
 
 class VaspPoscar(VaspText):
     def decode_comment(self):
