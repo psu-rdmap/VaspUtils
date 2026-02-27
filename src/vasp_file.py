@@ -75,7 +75,7 @@ class VaspIncar(VaspText):
     def check_by_keyword(self, vasp_kw: str):
         for i, l in enumerate(self.lines):
             current_kw = strip_split(l, sep='=')[0]
-            if vasp_kw == current_kw.strip():
+            if vasp_kw in current_kw:
                 return i, l
         return None
             
@@ -86,7 +86,7 @@ class VaspIncar(VaspText):
         if current_line is None:
             super().add_line(line_idx, new_line)
         else:
-            self.overwrite_line(*current_line)
+            self.overwrite_line(current_line[0], new_line)
 
     def append_line(self, new_line: str):
         # overwrite keyword if it exists rather than appending
@@ -95,7 +95,7 @@ class VaspIncar(VaspText):
         if current_line is None:
             super().append_line(new_line)
         else:
-            self.overwrite_line(*current_line)
+            self.overwrite_line(current_line[0], new_line)
 
     def remove_line(self, vasp_kw: str):
         current_line = self.check_by_keyword(vasp_kw)
