@@ -22,7 +22,14 @@ def convergence_study(main_cell: Cell, study_fp: Path):
         study_type = sf.readline().strip()
         assert study_type in ['KPOINTS', 'ENCUT'], f'[{study_type}] Study type not recognized. Must be KPOINTS or ENCUT'
         study_vals = strip_split(sf.readline(), sep=' ')
-    
+        parallel_options = dict(KPAR=None, NCORE=None, NPAR=None)
+        parallel_lines = sf.readlines()
+        for i, l in enumerate(parallel_lines):
+            if l.strip() in ['KPAR', 'NCORE', 'NPAR']:
+                key = l.strip()
+                vals = strip_split(parallel_lines[i+1], sep=' ')
+                parallel_options.update({key: vals})
+        
     # construct cells
     study_cells: Dict[str, Cell] = dict()
     for val in study_vals:
@@ -30,11 +37,15 @@ def convergence_study(main_cell: Cell, study_fp: Path):
         study_cells.update({val: copy_from_cell(main_cell, val_dir)})
 
     # overwrite INCAR or KPOINTS
-    for val, cell in study_cells.items():
+    for i, (val, cell) in enumerate(study_cells.items()):
         if study_type == 'KPOINTS':
             cell.kpoints.overwrite_line(3, re.sub('x', ' ', val))
         elif study_type == 'ENCUT':
             cell.incar.append_line(f'ENCUT = {val}\n')
+        # update parallelization options
+        for para_key, para_vals in parallel_options.items():
+            if para_vals is not None:
+                cell.incar.append_line(f'{para_key} = {para_vals[i]}\n')
     
     # relax each cells
     energies = []
