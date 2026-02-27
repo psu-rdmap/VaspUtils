@@ -5,7 +5,6 @@ from pathlib import Path
 from cell import Cell, copy_from_cell
 from utils import strip_split
 from typing import Dict
-import matplotlib.pyplot as plt
       
 def convergence_study(main_cell: Cell, study_fp: Path):
     # make study directory
@@ -43,11 +42,10 @@ def convergence_study(main_cell: Cell, study_fp: Path):
         cell.run_vasp()
         energies.append(cell.energy)
     
-    # save a plot of the energy convergence
-    fig, ax = plt.subplots()
-    ax.plot(study_cells.keys(), energies)
-    ax.set_title(study_type)
-    fig.savefig(study_dir / 'convergence.png')
+    # write energies
+    with open(study_dir / 'energies.out', 'w') as out:
+        lines = [str(e)+'\n' for e in energies]
+        out.writelines(lines)
 
 if __name__ == '__main__':
     # user input
