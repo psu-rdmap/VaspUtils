@@ -6,7 +6,7 @@ from cell import Cell, copy_from_cell, cleanup_vasp_output
 from vasp_file import VaspIncar
 from utils import tilps
 
-def point_defect(cell: Cell, defect_type: str, incar: VaspIncar = None):
+def point_defect(cell: Cell, defect_type: str, incar: VaspIncar = None, dry_run=False):
     """Return the relaxed cell with a point defect added."""
     # make defect directory
     i = 0
@@ -120,9 +120,9 @@ def point_defect(cell: Cell, defect_type: str, incar: VaspIncar = None):
     cleanup_vasp_output(defect_cell)
 
     # run VASP
-    defect_cell.run_vasp()
-
-    return defect_cell
+    if not dry_run:
+        defect_cell.run_vasp()
+        return defect_cell
 
 if __name__ == '__main__':
 
@@ -131,6 +131,7 @@ if __name__ == '__main__':
     parser.add_argument('--dir', type=str, help='Path to directory with relaxed INCAR, POSCAR, KPOINTS')
     parser.add_argument('--incar', type=str, default=None, help='(Default: INCAR in --dir) Path to specific INCAR file to load')
     parser.add_argument('--defect', type=str, help='Type of point defect to add to the cell (vac, int)')
+    parser.add_argument('--dry-run', action='store_true', help='Generate input files, but do not run VASP')
     args = parser.parse_args()
 
     relax_dir = Path(args.dir).resolve()
@@ -144,9 +145,10 @@ if __name__ == '__main__':
         incar = VaspIncar(Path(args.incar).resolve())
     else:
         incar = None
-    defect_cell = point_defect(relax_cell, args.defect, incar=incar)
+    defect_cell = point_defect(relax_cell, args.defect, incar=incar, dry_run=args.dry_run)
 
     # print out properties of the main cell
-    with open(defect_cell.dir / 'defect.out', 'w') as r:
-        r.write(f'Energy: {defect_cell.energy} eV\n')
-        print(f'Energy: {defect_cell.energy} eV\n')
+    if not args.dry_run:
+        with open(defect_cell.dir / 'defect.out', 'w') as r:
+            r.write(f'Energy: {defect_cell.energy} eV\n')
+            print(f'Energy: {defect_cell.energy} eV\n')
