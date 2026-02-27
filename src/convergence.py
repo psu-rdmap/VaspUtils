@@ -15,7 +15,7 @@ def convergence_study(main_cell: Cell, study_fp: Path):
         if (main_cell.dir / f'convergence_{i}').exists():
             i += 1
         else:
-            study_dir = main_cell.dir / f'defect_{i}'
+            study_dir = main_cell.dir / f'convergence_{i}'
             study_dir.mkdir()
     
     # load study file
@@ -37,7 +37,7 @@ def convergence_study(main_cell: Cell, study_fp: Path):
         elif study_type == 'ENCUT':
             cell.incar.append_line(f'ENCUT = {val}\n')
     
-    # relax each cell
+    # relax each cells
     energies = []
     for val, cell in study_cells.items():
         cell.run_vasp()
@@ -45,7 +45,7 @@ def convergence_study(main_cell: Cell, study_fp: Path):
     
     # save a plot of the energy convergence
     fig, ax = plt.subplots()
-    ax.plot(study_cells.keys, energies)
+    ax.plot(study_cells.keys(), energies)
     ax.set_title(study_type)
     fig.savefig(study_dir / 'convergence.png')
 
