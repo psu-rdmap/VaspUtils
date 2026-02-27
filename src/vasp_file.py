@@ -74,7 +74,8 @@ class VaspText(VaspFile):
 class VaspIncar(VaspText):
     def check_by_keyword(self, vasp_kw: str):
         for i, l in enumerate(self.lines):
-            if vasp_kw in l:
+            current_kw = strip_split(l, sep='=')[0]
+            if vasp_kw == current_kw.strip():
                 return i, l
         return None
             
