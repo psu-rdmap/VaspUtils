@@ -64,3 +64,6 @@ if __name__ == '__main__':
     
     # create cell from input directory
     main_cell = Cell(main_dir)
+
+    # run convergence study
+    convergence_study(main_cell, study_fp)
