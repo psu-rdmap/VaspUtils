@@ -115,7 +115,7 @@ def point_defect(cell: Cell, defect_type: str, incar: VaspIncar = None, dry_run=
     defect_cell.incar.remove_line('ICHARG')
     defect_cell.incar.append_line('LREAL = Auto\n')
     defect_cell.incar.append_line('ISYM = 0\n')
-    defect_cell.incar.append_line('NELM = 120\n')
+    defect_cell.incar.append_line('NELM = 200\n')
 
     # remove VASP output files from previous relaxation
     cleanup_vasp_output(defect_cell)
