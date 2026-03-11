@@ -10,7 +10,7 @@ def adjust_poscar(cell: Cell, input_fp: Path):
 
     # get line index and position vector of target atom to be changed
     target_atom = cell.poscar.check_by_position(defect_data['position'])
-    assert target_atom is not None, f'[{defect_data['position']}] Could not find atom within 0.001 of each coordinate'
+    assert target_atom is not None, f"[{defect_data['position']}] Could not find atom within 0.001 of each coordinate"
 
     # get list detailing number of each ion species
     _, species_amounts, _ = cell.poscar.load_species()
@@ -22,7 +22,8 @@ def adjust_poscar(cell: Cell, input_fp: Path):
     # interstitial -> replace target with dumbbell
     elif defect_data['type'] == 'interstitial':
         species_amounts[0] += 1
-        int_coord_1 = int_coord_2 = target_atom[1].tolist()
+        int_coord_1 = target_atom[1].tolist()
+        int_coord_2 = target_atom[1].tolist()
         if defect_data['db_orientation'] == '100':
             lv_idx = 0
         elif defect_data['db_orientation'] == '010':
@@ -30,14 +31,14 @@ def adjust_poscar(cell: Cell, input_fp: Path):
         elif defect_data['db_orientation'] == '001':
             lv_idx = 2
         else:
-            raise ValueError(f'[{defect_data['db_orientation']}] Unrecognized dumbbell orientation. Expected \'100\', \'010\', or \'001\'')
+            raise ValueError(f"[{defect_data['db_orientation']}] Unrecognized dumbbell orientation. Expected \'100\', \'010\', or \'001\'")
         frac_spacing = defect_data['db_spacing'] / np.linalg.norm(cell.lattice_vectors[lv_idx])
         int_coord_1[lv_idx] -= frac_spacing/2
         int_coord_2[lv_idx] += frac_spacing/2
-        cell.poscar.overwrite_line(target_atom[0], tilps(int_coord_1))
-        cell.poscar.add_line(target_atom[0], tilps(int_coord_2))
+        cell.poscar.overwrite_line(target_atom[0], tilps(int_coord_1)+'\n')
+        cell.poscar.add_line(target_atom[0], tilps(int_coord_2)+'\n')
     else:
-        raise ValueError(f'[{defect_data['type']}] Unrecognized defect type. Expected \'vacancy\' or \'interstitial\'')
+        raise ValueError(f"[{defect_data['type']}] Unrecognized defect type. Expected \'vacancy\' or \'interstitial\'")
     
     # update number of species accordingly
     species_amounts_line = tilps(species_amounts)
@@ -52,18 +53,18 @@ def adjust_incar(cell: Cell, defect_data: dict):
         # remove trailing comment (if any) get MAGMOM values
         m_line = magmom_line[1].split('#')[0]
         magmom_list = strip_split(m_line.split('=')[1])
-        assert len(magmom_list) == 1, 'Only ferromagnetic initialization is supported for interstitial point defects'
+        assert len(magmom_list) == 1, "Only ferromagnetic initialization is supported for point defects"
 
         # increase/decrease first atom amount
         magmom = magmom_list[0].split('*')
         magmom.insert(1, '*')
         magmom_atom_count = int(magmom[0])
-        if defect_data['defect_type'] == 'vacancy':
+        if defect_data['type'] == 'vacancy':
             magmom_atom_count -= 1
-        elif defect_data['defect_type'] == 'interstitial':
+        elif defect_data['type'] == 'interstitial':
             magmom_atom_count += 1
-        magmom[-1] = str(magmom_atom_count)
-        magmom = tilps(magmom)
+        magmom[0] = str(magmom_atom_count)
+        magmom = tilps(magmom, sep='')
 
         # update line in incar
         new_m_line = f'MAGMOM = {magmom}\n'
