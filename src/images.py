@@ -12,7 +12,7 @@ from vasp_file import VaspPoscar
 from copy import copy
 
 class Ion:
-    def __init__(self, id0: int, r0: np.ndarray, id1: int = None, r1: np.ndarray = None, tot_dist: float = None, defect: str = None):
+    def __init__(self, id0: int, r0: np.ndarray, id1: int = None, r1: np.ndarray = None, tot_dist: float = None):
         # 0 -> initial POSCAR, 1 -> final POSCAR
         self.id0 = id0
         self.id1 = id1
@@ -20,8 +20,6 @@ class Ion:
         self.r0 = r0
         self.r1 = r1
         self.tot_dist = tot_dist
-        # vacancy or interstitial
-        self.defect = defect
         # interpolated positions
         self.steps: list[np.ndarray] = []
 
@@ -65,34 +63,30 @@ if __name__ == '__main__':
     init_ion_pos_dict = {j: init_ion_pos_unwrap[j] for j in range(len(init_ion_pos_unwrap))}
     fin_ion_pos_dict = {j: fin_ion_pos_unwrap[j] for j in range(len(fin_ion_pos_unwrap))}
     
-    # connect atom in final POSCAR with initial vacancy position to atom in initial POSCAR with final vacancy position
-    if input_data['defect'] == 'vacancy':
-        r_vac_init = np.array(input_data['defect_pos_initial'])
-        r_vac_fin = np.array(input_data['defect_pos_final'])
+    # connect specific ion which may migrate far from their original positions
+    ions = {}
+    for i, ion in input_data['mobile_ions'].items():
+        r0_i = np.array(ion['initial_pos'])
+        r0_f = np.array(ion['final_pos'])
         init_distances = {}
         fin_distances = {}
-        for i in range(len(init_ion_pos)):
-            r_init = init_ion_pos_unwrap[i]
-            r_fin = fin_ion_pos_unwrap[i]
-            init_distances.update({i: np.linalg.norm(r_vac_fin - r_init)})
-            fin_distances.update({i: np.linalg.norm(r_vac_init - r_fin)})
+        for j in range(len(init_ion_pos)):
+            r1_i = init_ion_pos_unwrap[j]
+            r1_f = fin_ion_pos_unwrap[j]
+            init_distances.update({j: np.linalg.norm(r1_i - r0_i)})
+            fin_distances.update({j: np.linalg.norm(r1_f - r0_f)})
         # search through each distance dictionary until the minimum is found
-        id0 = min(init_distances, key=init_distances.get)
-        id1 = min(fin_distances, key=fin_distances.get)
-        r0 = init_ion_pos_unwrap[id0]
-        r1 = fin_ion_pos_unwrap[id1]
-        defect_ion = Ion(id0, r0, id1=id1, r1=r1, tot_dist=np.linalg.norm(r1-r0), defect='vacancy')
-    # interstitial
-    elif input_data['defect'] == 'interstitial':
-        raise NotImplementedError
+        id_i = min(init_distances, key=init_distances.get)
+        id_f = min(fin_distances, key=fin_distances.get)
+        r_i = init_ion_pos_unwrap[id_i]
+        r_f = fin_ion_pos_unwrap[id_f]
+        defect_ion = Ion(id_i, r_i, id1=id_f, r1=r_f, tot_dist=np.linalg.norm(r_f-r_i))
+        ions.update({id_i: defect_ion})
     
     # remove ions from "master" dictionaries so they do not get matched in the future
-    init_ion_pos_dict.pop(id0)
-    fin_ion_pos_dict.pop(id1)
-
-    # create dictionary of ions using initial POSCAR line indices as keys
-    ions = {id0: defect_ion}
-
+    init_ion_pos_dict.pop(id_i)
+    fin_ion_pos_dict.pop(id_f)
+    
     # connect all other ions in the initial and final POSCARs
     for i, r0 in init_ion_pos_dict.items():
         ion = Ion(i, r0)
