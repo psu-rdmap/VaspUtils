@@ -1,3 +1,6 @@
+from copy import deepcopy
+import numpy as np
+
 def strip_split(s: str, sep=None, item_type=None):
     s = s.strip()
     s = s.split(sep)
@@ -13,5 +16,21 @@ def strip_split(s: str, sep=None, item_type=None):
 def tilps(list_str: list[str], sep: str = ' '):
     s = ''
     for l in list_str:
-        s += str(l) + sep
+        s += f'{l:.16f}' + sep
     return s
+
+def unwrap_coords(pos_list: list[np.ndarray]):
+    new_pos_list = deepcopy(pos_list)
+    for pos in new_pos_list:
+        for c in range(3):
+            if pos[c] > 0.95:
+                pos[c] = pos[c] - 1
+    return new_pos_list
+
+def wrap_coords(pos_list: list[np.ndarray]):
+    new_pos_list = deepcopy(pos_list)
+    for pos in new_pos_list:
+        for c in range(3):
+            if pos[c] < 0:
+                pos[c] = pos[c] + 1
+    return new_pos_list
