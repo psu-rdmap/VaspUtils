@@ -91,13 +91,16 @@ if __name__ == '__main__':
             color_list.append(input_data['colors'][spcs])
         else:
             color_list.append('gray')
-    for i, ion in input_data['track'].items():
-        r0 = np.array(ion['initial_pos'])
-        distances = {}
-        for j, r1 in enumerate(steps[0].load_ion_positions()):
-            distances.update({j: np.linalg.norm(r1-r0)})
-        closest_j = min(distances, key=distances.get)
-        color_list[closest_j] = ion['color']
+    try:
+        for i, ion in input_data['track'].items():
+            r0 = np.array(ion['initial_pos'])
+            distances = {}
+            for j, r1 in enumerate(steps[0].load_ion_positions()):
+                distances.update({j: np.linalg.norm(r1-r0)})
+            closest_j = min(distances, key=distances.get)
+            color_list[closest_j] = ion['color']
+    except:
+        pass
     step0_df['color'] = color_list
     
     # load successive frames
