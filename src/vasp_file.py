@@ -73,8 +73,8 @@ class VaspIncar(VaspFile):
             self.overwrite_line(current_line[0], new_line)
 
 class VaspPoscar(VaspFile):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, file_path=None, contents_str=None):
+        super().__init__(file_path=file_path, contents_str=contents_str)
         self.update_supercell_properties()
 
     def update_supercell_properties(self):
@@ -131,10 +131,10 @@ class VaspPotcar(VaspFile):
     def load_from_string(self, contents_str):
         """Iterates over list of directory names (e.g., ['Co', 'Ni_pv']) and loads corresponding POTCAR files with trailing newline characters removed."""
         # load directory names
-        lines = super().load_from_string(contents_str)
+        super().load_from_string(contents_str)
         # load POTCAR for each directory name
-        potcar_lines = []
-        for potcar_dir in lines:
+        potcar_lines: list[str] = []
+        for potcar_dir in self.lines:
             potcar_path = potpaw_PBE_path / potcar_dir / 'POTCAR'
             try:
                 with open(potcar_path) as src_p:
@@ -143,7 +143,7 @@ class VaspPotcar(VaspFile):
                 raise FileNotFoundError(f'[{potcar_path}] File does not exist')
         # remove trailing \n characters
         potcar_lines = [l.strip('\n') for l in potcar_lines]
-        return potcar_lines
+        self.lines = potcar_lines
 
 class VaspOutcar(VaspFile):
     def get_energy(self):
@@ -155,8 +155,8 @@ class VaspOutcar(VaspFile):
         return float(energy)
     
 class VaspContcar(VaspPoscar):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, file_path=None, contents_str=None):
+        super().__init__(file_path=file_path, contents_str=contents_str)
         self.mtime = 0
 
     def check_updated(self):

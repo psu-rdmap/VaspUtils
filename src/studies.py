@@ -10,7 +10,8 @@ class Study:
     """Baseclass for a DFT study which consists of at least one set of VASP calculations."""
     def __init__(self, input_yml: dict[str, dict]):
         self.name_str = input_yml['study']['name']
-        self.dir_path = next_path(Path(input_yml['study']['dir']))
+        self.parent_dir_path = Path(input_yml['study']['dir'])
+        self.dir_path = None
         self.params = input_yml['study']['parameters']
 
         # load VASP input files from user input
@@ -108,6 +109,7 @@ class Individual(Study):
     
     def build_directory(self):
         """Single directory with no subdirectories."""
+        self.dir_path = next_path(self.parent_dir_path / 'individual')
         self.dir_path.mkdir()
         self.write_input_files(self.dir_path)
 
@@ -157,6 +159,7 @@ class EosFit(Study):
             
     def build_directory(self):
         """Subdirectories for each scale factor."""
+        self.dir_path = next_path(self.parent_dir_path / 'eos')
         self.dir_path.mkdir()
         for sf in self.params['scaling']:
             # create subdirectory
