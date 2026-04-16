@@ -40,6 +40,7 @@ def main():
         input_params: dict = yaml.safe_load(f)
 
     # start a study
-    study = study_registry[input_params['study']['type']](input_params)
+    study_params = input_params['study']['parameters']
+    study = study_registry[study_params['type']](input_params)
 
 main()

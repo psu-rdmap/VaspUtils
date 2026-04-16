@@ -11,7 +11,7 @@ class Study:
     def __init__(self, input_yml: dict[str, dict]):
         self.name_str = input_yml['study']['name']
         self.dir_path = next_path(Path(input_yml['study']['dir']))
-        self.params = input_yml['parameters']
+        self.params = input_yml['study']['parameters']
 
         # load VASP input files from user input
         self.incar = VaspIncar(contents_str=input_yml['study']['INCAR'])

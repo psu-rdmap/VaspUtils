@@ -73,8 +73,8 @@ class VaspIncar(VaspFile):
             self.overwrite_line(current_line[0], new_line)
 
 class VaspPoscar(VaspFile):
-    def __init__(self, file_path, contents_str):
-        super().__init__(file_path=file_path, contents_str=contents_str)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.update_supercell_properties()
 
     def update_supercell_properties(self):
@@ -155,8 +155,8 @@ class VaspOutcar(VaspFile):
         return float(energy)
     
 class VaspContcar(VaspPoscar):
-    def __init__(self, path: Path):
-        super().__init__(path)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.mtime = 0
 
     def check_updated(self):
