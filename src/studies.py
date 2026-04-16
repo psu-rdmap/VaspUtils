@@ -120,7 +120,7 @@ class Individual(Study):
         """Single directory with no subdirectories."""
         self.dir_path = next_path(self.parent_dir_path / 'individual')
         self.dir_path.mkdir()
-        self.write_input_files(self.dir_path)
+        self.write_input_files(self.dir_path, update_path=True)
 
 @register_study
 class EosFit(Study):

@@ -36,11 +36,13 @@ class VaspFile:
         lines = [l for l in lines if l.strip() != '']
         self.lines = lines
     
-    def write_to_file(self, dest_path: Path):
+    def write_to_file(self, dest_path: Path, overwrite_path=False):
         """Writes lines with trailing newline characters to a given filepath."""
         with open(dest_path, 'w') as d:
             for l in self.lines:
                 d.write(l+'\n')
+        if overwrite_path:
+            self.path = dest_path
 
     def append_line(self, new_line: str):
         """Append a line and overwrite the existing file if it exists."""
