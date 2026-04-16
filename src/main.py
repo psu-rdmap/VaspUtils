@@ -23,9 +23,9 @@ The idea is that a user supplies one large format input file describing
         i. 
 """
 
-import argparse, yaml
+import argparse, yaml, shutil
 from pathlib import Path
-from studies import study_registry
+from studies import Study, study_registry
 
 def main():
     # load input file
@@ -41,6 +41,8 @@ def main():
 
     # start a study
     study_params = input_params['study']['parameters']
-    study = study_registry[study_params['type']](input_params)
+    study: Study = study_registry[study_params['type']](input_params)
+
+    shutil.copy(input_fp, study.dir_path)
 
 main()

@@ -71,9 +71,9 @@ class Study:
             with open(contcar_path, 'r') as f:
                 lines = f.readlines()
             if len(lines):
-                contcar_loaded = False
+                contcar_loaded = True
         self.contcar = VaspContcar(file_path = run_path / 'CONTCAR')
-        
+
         # continuously save CONTCAR as it updates every ionic step
         while vasp.poll() is None:
             time.sleep(1)
