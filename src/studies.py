@@ -5,7 +5,6 @@ import subprocess, time
 from ase.eos import EquationOfState
 from ase.units import kJ
 
-
 class Study:
     """Baseclass for a DFT study which consists of at least one set of VASP calculations."""
     def __init__(self, input_yml: dict[str, dict]):
@@ -54,20 +53,24 @@ class Study:
                 self.update_input_file(key, step_params[key])
 
         # initialize countcar and steps directory
-        self.contcar = VaspContcar(file_path = run_path / 'POSCAR')
         steps_dir = run_path / 'steps'
-        steps_dir.mkdir()
+        steps_dir.mkdir(exist_ok=True)
 
         # run vasp in the background
-        vasp_out = open(run_path / 'vasp.out', 'w')
+        vasp_out = open(run_path / 'vasp.out', 'a')
         vasp_cmd = ['srun', '--kill-on-bad-exit', '--cpu-bind=cores', 'vasp_std']
         vasp = subprocess.Popen(vasp_cmd, cwd=run_path, stdout=vasp_out, stderr=subprocess.STDOUT)
 
-        # continuously save countcars as it updates every iteration
+        # load CONTCAR once it exists
+        while not (run_path / 'CONTCAR').exists():
+            time.sleep(1)
+        self.contcar = VaspContcar(file_path = run_path / 'CONTCAR')
+
+        # continuously save CONTCAR as it updates every ionic step
         while vasp.poll() is None:
             time.sleep(1)
             if self.contcar.check_updated():
-                self.contcar.write_to_file(next_path(steps_dir / f'CONTCAR'))
+                self.contcar.write_to_file(next_path(steps_dir / 'CONTCAR'))
         vasp.wait()
         vasp_out.close()
 
@@ -88,13 +91,11 @@ class Study:
                 if file_name == 'POSCAR':
                     self.poscar.overwrite_line(action[1:], line[action])
 
-
 study_registry: dict[str, Study] = {}
 def register_study(cls):
     """Registry enrollment so that Study subclasses can be instantiated by string name."""
     study_registry[cls.__name__] = cls
     return cls
-
 
 @register_study
 class Individual(Study):
@@ -112,7 +113,6 @@ class Individual(Study):
         self.dir_path = next_path(self.parent_dir_path / 'individual')
         self.dir_path.mkdir()
         self.write_input_files(self.dir_path)
-
 
 @register_study
 class EosFit(Study):
