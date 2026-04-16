@@ -29,12 +29,12 @@ class Study:
         """Build directory specific to each Study subclass."""
         pass
 
-    def write_input_files(self, dir_path: Path):
+    def write_input_files(self, dir_path: Path, overwrite_path=False):
         """Write current lines of input files to a files in a given directory."""
-        self.incar.write_to_file(dir_path / 'INCAR')
-        self.poscar.write_to_file(dir_path / 'POSCAR')
-        self.kpoints.write_to_file(dir_path / 'KPOINTS')
-        self.potcar.write_to_file(dir_path / 'POTCAR')
+        self.incar.write_to_file(dir_path / 'INCAR', overwrite_path=overwrite_path)
+        self.poscar.write_to_file(dir_path / 'POSCAR', overwrite_path=overwrite_path)
+        self.kpoints.write_to_file(dir_path / 'KPOINTS', overwrite_path=overwrite_path)
+        self.potcar.write_to_file(dir_path / 'POTCAR', overwrite_path=overwrite_path)
 
     def load_input_files(self, dir_path: Path):
         """Load lines of input files in a given directory."""
@@ -120,7 +120,7 @@ class Individual(Study):
         """Single directory with no subdirectories."""
         self.dir_path = next_path(self.parent_dir_path / 'individual')
         self.dir_path.mkdir()
-        self.write_input_files(self.dir_path, update_path=True)
+        self.write_input_files(self.dir_path, overwrite_path=True)
 
 @register_study
 class EosFit(Study):
