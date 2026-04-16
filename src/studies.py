@@ -62,10 +62,18 @@ class Study:
         vasp = subprocess.Popen(vasp_cmd, cwd=run_path, stdout=vasp_out, stderr=subprocess.STDOUT)
 
         # load CONTCAR once it exists
-        while not (run_path / 'CONTCAR').exists():
+        contcar_loaded = False
+        contcar_path = run_path / 'CONTCAR'
+        while contcar_loaded is False:
             time.sleep(1)
+            if not contcar_path.exists():
+                continue
+            with open(contcar_path, 'r') as f:
+                lines = f.readlines()
+            if len(lines):
+                contcar_loaded = False
         self.contcar = VaspContcar(file_path = run_path / 'CONTCAR')
-
+        
         # continuously save CONTCAR as it updates every ionic step
         while vasp.poll() is None:
             time.sleep(1)
