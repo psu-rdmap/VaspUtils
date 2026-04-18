@@ -23,9 +23,13 @@ The idea is that a user supplies one large format input file describing
         i. 
 """
 
-import argparse, yaml, shutil
+import argparse, yaml, shutil, logging, sys
 from pathlib import Path
 from studies import Study, study_registry
+
+# basic logger
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+logger = logging.getLogger('debug')
 
 def main():
     # load input file
@@ -36,13 +40,23 @@ def main():
     input_fp = Path(args.input).resolve()
     assert input_fp.exists(), f'[{input_fp}] File does not exist'
 
+    # load user input
     with open(input_fp, 'r') as f:
         input_params: dict = yaml.safe_load(f)
+    logger.debug(f'Loaded input file {input_fp}')
 
-    # start a study
-    study_params = input_params['study']['parameters']
-    study: Study = study_registry[study_params['type']](input_params)
-
+    # initialize a study
+    study_type = input_params['study']['parameters']['type']
+    study: Study = study_registry[study_type](input_params)
+    logger.debug(f'Initialized study type {study_type}')
+    
+    # build directory tree and copy in input file
+    study.build_directory()
+    logger.debug(f'Built directory tree at {study.dir_path}')
     shutil.copy(input_fp, study.dir_path)
+
+    # run vasp
+    logger.debug(f'Starting VASP calculations')
+    study.run_vasp()
 
 main()

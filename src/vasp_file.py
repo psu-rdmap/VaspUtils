@@ -2,11 +2,15 @@ from pathlib import Path
 from utils import strip_split
 import numpy as np
 import pandas as pd
+import logging
 
 potpaw_PBE_path = Path('/storage/group/xvw5285/default/ATAT/vasp_pots/potpaw_PBE.54/')
 
+logger = logging.getLogger('main')
+
 class VaspFile:
     def __init__(self, file_path: Path = None, contents_str: str = None):
+        self.name = self.__class__.__name__
         self.lines: list[str] = None
         self.path: Path = None
         if contents_str:
@@ -22,6 +26,7 @@ class VaspFile:
         # remove elements like '  '
         lines = [l for l in lines if l.strip() != '']
         self.lines = lines
+        logger.debug(f'{self.name}: loaded lines from string')
     
     def load_from_file(self, file_path: Path):
         """Loads lines from a file and updates path as this filepath."""
@@ -35,14 +40,17 @@ class VaspFile:
         # remove elements like '  '
         lines = [l for l in lines if l.strip() != '']
         self.lines = lines
+        logger.debug(f'{self.name}: loaded lines from {file_path}')
     
     def write_to_file(self, dest_path: Path, overwrite_path=False):
         """Writes lines with trailing newline characters to a given filepath."""
         with open(dest_path, 'w') as d:
             for l in self.lines:
                 d.write(l+'\n')
+            logger.debug(f'{self.name}: wrote lines to {dest_path}')
         if overwrite_path:
             self.path = dest_path
+            logger.debug(f'{self.name}: updated current path to {dest_path}')
 
     def append_line(self, new_line: str):
         """Append a line and overwrite the existing file if it exists."""
@@ -109,6 +117,7 @@ class VaspPoscar(VaspFile):
 
         # calculate lattice parameters
         self.lattice_parameters = {}
+        logger.debug(f'{self.name}: updated supercell properties')
     
     def load_from_string(self, contents_str):
         super().load_from_string(contents_str)
@@ -145,6 +154,7 @@ class VaspPotcar(VaspFile):
                 raise FileNotFoundError(f'[{potcar_path}] File does not exist')
         # remove trailing \n characters
         potcar_lines = [l.strip('\n') for l in potcar_lines]
+        logger.debug(f'{self.name}: loaded lines for {self.lines}')
         self.lines = potcar_lines
 
 class VaspOutcar(VaspFile):

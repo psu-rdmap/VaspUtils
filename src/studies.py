@@ -1,9 +1,11 @@
 from vasp_file import VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar
 from utils import next_path
 from pathlib import Path
-import subprocess, time
+import subprocess, time, logging
 from ase.eos import EquationOfState
 from ase.units import kJ
+
+logger = logging.getLogger('main')
 
 class Study:
     """Baseclass for a DFT study which consists of at least one set of VASP calculations."""
@@ -12,18 +14,17 @@ class Study:
         self.parent_dir_path = Path(input_yml['study']['dir'])
         self.dir_path = None
         self.params = input_yml['study']['parameters']
+        self.calculation_params = input_yml['calculation']
 
         # load VASP input files from user input
         self.incar = VaspIncar(contents_str=input_yml['study']['INCAR'])
         self.poscar = VaspPoscar(contents_str=input_yml['study']['POSCAR'])
         self.kpoints = VaspKPoints(contents_str=input_yml['study']['KPOINTS'])
         self.potcar = VaspPotcar(contents_str=input_yml['study']['POTCAR'])
+        logger.debug('Initialized VASP input file objects from user input')
 
-        # create entire directory tree and copy in input files
+        # build directory and run vasp (implemented by subclasses)
         self.subdir_paths = {}
-        self.build_directory()
-
-        # loop over and run calculations (implementation specific to each Study subclass)
 
     def build_directory(self):
         """Build directory specific to each Study subclass."""
@@ -50,9 +51,10 @@ class Study:
             if key == 'name':
                 pass
             else:
+                logger.debug(f'Updating input file {key}')
                 self.update_input_file(key, step_params[key])
 
-        # initialize countcar and steps directory
+        # initialize steps directory
         steps_dir = run_path / 'steps'
         steps_dir.mkdir(exist_ok=True)
 
@@ -60,8 +62,9 @@ class Study:
         vasp_out = open(run_path / 'vasp.out', 'a')
         vasp_cmd = ['srun', '--kill-on-bad-exit', '--cpu-bind=cores', 'vasp_std']
         vasp = subprocess.Popen(vasp_cmd, cwd=run_path, stdout=vasp_out, stderr=subprocess.STDOUT)
+        logger.debug(f'VASP launched')
 
-        # load CONTCAR once it exists
+        # load CONTCAR after the first scf cycle
         contcar_loaded = False
         contcar_path = run_path / 'CONTCAR'
         while contcar_loaded is False:
@@ -90,6 +93,8 @@ class Study:
         """Given an input file name, update the corresponding instance lines with a list of new lines and the desired operation (add, remove, overwrite line number, ...)."""
         for line in new_lines:
             action = next(iter([k for k in line.keys()]))
+            logger.debug(f'Action: {action}')
+            logger.debug(f'Line: {line[action]}')
             # append the current line to the end
             if action == 'Add':
                 if file_name == 'INCAR':
@@ -108,19 +113,18 @@ def register_study(cls):
 @register_study
 class Individual(Study):
     """Simplest study consisting of one set of VASP calculations in a single directory."""
-    def __init__(self, input_yml):
-        # load input files and build directory
-        super().__init__(input_yml)
-
-        # individual calculation steps
-        for step_num, step_params in input_yml['calculation'].items():            
-            self.run_vasp(self.dir_path, step_params)
-    
     def build_directory(self):
         """Single directory with no subdirectories."""
         self.dir_path = next_path(self.parent_dir_path / 'individual')
         self.dir_path.mkdir()
         self.write_input_files(self.dir_path, overwrite_path=True)
+    
+    def run_vasp(self):
+        # individual calculation steps
+        num_steps = len(self.calculation_params.keys())
+        for step_num, step_params in self.calculation_params.items():
+            logger.debug(f'({step_num+1}/{num_steps}) Running calculation: {step_params['name']}')
+            super().run_vasp(self.dir_path, step_params)
 
 @register_study
 class EosFit(Study):
