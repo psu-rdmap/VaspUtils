@@ -190,3 +190,5 @@ class EosFit(Study):
             d.write(f'Energies: {energies}\n')
             d.write(f'Equilibrium volume = {self.poscar.volume} A3\n')
             d.write(f'Equilibrium energy = {self.outcar.get_energy()} eV\n')
+            d.write(f'Bulk modulus: {bulk_mod / kJ * 1.0e24}')
+        logger.debug(f"Printed fit data to {self.dir_path / 'data.out'}")
