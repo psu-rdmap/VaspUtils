@@ -59,8 +59,8 @@ class VaspFile:
             self.write_to_file(self.path)
 
     def overwrite_line(self, line_number: int, new_line: str):
-        """Overwrite a line at a given line number (starting from 1) and overwrite the existing file if it exists."""
-        self.lines[line_number+1] = new_line
+        """Overwrite a line at a given line number and overwrite the existing file if it exists."""
+        self.lines[line_number] = new_line
         if self.path:
             self.write_to_file(self.path)
 
