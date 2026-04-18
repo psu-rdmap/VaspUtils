@@ -129,46 +129,6 @@ class Individual(Study):
 @register_study
 class EosFit(Study):
     """Calculate energy for scaled up/down supercells and fit a V(E) equation of state."""
-    def __init__(self, input_yml):
-        # load input files and build directory
-        super().__init__(input_yml)
-        
-        # run calculations
-        energies, volumes = [], []
-        for sf, subdir_path in self.subdir_paths.items():
-            # load input files in subdirectory and update POSCAR with current scaling factor
-            self.load_input_files(subdir_path)
-            self.update_input_file('POSCAR', [{'L2': sf}])
-            # individual steps
-            for step_id, step_params in input_yml['calculation'].items():
-                self.run_vasp(subdir_path, step_params)
-                # collect data
-                volumes.append(self.poscar.volume)
-                self.outcar = VaspOutcar(file_path = subdir_path / 'OUTCAR')
-                energies.append(self.outcar.get_energy())
-
-        # fit EoS
-        eos = EquationOfState(volumes, energies, eos='birchmurnaghan')
-        eq_vol, eq_energy, bulk_mod = eos.fit()
-        eos.plot(self.dir_path / 'eos.png')
-        
-        # set up equilibrium volume supercell directory
-        eq_subdir_path = self.dir_path / 'eq'
-        self.load_input_files(eq_subdir_path)
-        eq_vol_factor = eq_vol / self.poscar.volume
-        eq_sf = self.poscar.scale_factor*(eq_vol_factor)**(1/3)
-        self.update_input_file('POSCAR', [{'L2': eq_sf}])
-
-        # calculate equilibrium energy
-        for step_id, step_params in input_yml['calculation'].items():
-            self.run_vasp(eq_subdir_path, step_params)
-
-        # print out data
-        self.outcar.load_from_file(eq_subdir_path / 'OUTCAR')
-        with open(self.dir_path / 'data.out', 'w') as d:
-            d.write(f'Energy = {self.outcar.get_energy()} eV\n')
-            d.write(f'Equilibrium volume = {self.poscar.volume} A3\n')
-            
     def build_directory(self):
         """Subdirectories for each scale factor."""
         self.dir_path = next_path(self.parent_dir_path / 'eos')
@@ -183,3 +143,50 @@ class EosFit(Study):
         subdir_path = self.dir_path / 'eq'
         subdir_path.mkdir()
         self.write_input_files(subdir_path)
+
+    def run_vasp(self):
+        # calculate energies for fitting
+        energies, volumes = [], []
+        for sf in self.params['scaling']:
+            # load input files in subdirectory and update POSCAR with current scaling factor
+            subdir_path = self.dir_path / str(sf)
+            self.load_input_files(subdir_path)
+            self.update_input_file('POSCAR', [{'L2': sf}])
+            logger.debug(f"Loaded input files for scale factor {sf}")
+            # individual steps
+            num_steps = len(self.calculation_params.keys())
+            for step_num, step_params in self.calculation_params.items():
+                logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
+                super().run_vasp(subdir_path, step_params)
+                # get volume and energy
+                volumes.append(self.poscar.volume)
+                self.outcar = VaspOutcar(file_path = subdir_path / 'OUTCAR')
+                energies.append(self.outcar.get_energy())
+
+        # fit EoS
+        eos = EquationOfState(volumes, energies, eos='birchmurnaghan')
+        eq_vol, eq_energy, bulk_mod = eos.fit()
+        eos.plot(self.dir_path / 'eos.png')
+        logger.debug(f"Birch-Murnaghan EOS fitted")
+        
+        # set up equilibrium volume supercell directory
+        subdir_path = self.dir_path / 'eq'
+        self.load_input_files(subdir_path)
+        eq_vol_factor = eq_vol / self.poscar.volume
+        eq_sf = self.poscar.scale_factor*(eq_vol_factor)**(1/3)
+        self.update_input_file('POSCAR', [{'L2': eq_sf}])
+        logger.debug(f"Loaded input files for equilibrium scale factor {sf}")
+
+        # calculate equilibrium energy
+        num_steps = len(self.calculation_params.keys())
+        for step_num, step_params in self.calculation_params.items():
+            logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
+            super().run_vasp(subdir_path, step_params)
+
+        # print out data
+        self.outcar.load_from_file(subdir_path / 'OUTCAR')
+        with open(self.dir_path / 'data.out', 'w') as d:
+            d.write(f'Volumes: {volumes}\n')
+            d.write(f'Energies: {energies}\n')
+            d.write(f'Equilibrium volume = {self.poscar.volume} A3\n')
+            d.write(f'Equilibrium energy = {self.outcar.get_energy()} eV\n')
