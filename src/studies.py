@@ -123,7 +123,7 @@ class Individual(Study):
         # individual calculation steps
         num_steps = len(self.calculation_params.keys())
         for step_num, step_params in self.calculation_params.items():
-            logger.debug(f'({step_num+1}/{num_steps}) Running calculation: {step_params['name']}')
+            logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
             super().run_vasp(self.dir_path, step_params)
 
 @register_study

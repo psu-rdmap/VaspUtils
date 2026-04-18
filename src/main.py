@@ -28,8 +28,8 @@ from pathlib import Path
 from studies import Study, study_registry
 
 # basic logger
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-logger = logging.getLogger('debug')
+logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+logger = logging.getLogger('main')
 
 def main():
     # load input file
