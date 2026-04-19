@@ -1,28 +1,3 @@
-"""
-The idea is that a user supplies one large format input file describing
-
-1. Study details -> parameters and input files
-    a. Input parameter convergence
-        i. Parameter name and values
-    a. Birch-Murnaghan EoS fitting
-        i. Volume scaling factors
-    b. Chemical potential for HEAs
-        i. 
-    c. Defect energetics
-        i. Point defect type
-        ii. Energy type
-
-2. Calculation details -> updates to input files
-    a. Preconvergence
-        i. PREC, ENCUT, EDIFF, EDIFFG, KPOINTS
-    b. Non-magnetic / magnetic
-        i. ISPIN, MAGMOM, LORBIT
-    d. High accuracy
-        i. LREAL, PREC, ENCUT, EDIFF, EDIFFG, KPOINTS
-    e. Atom replacement
-        i. 
-"""
-
 import argparse, yaml, shutil, logging, sys
 from pathlib import Path
 from studies import Study, study_registry

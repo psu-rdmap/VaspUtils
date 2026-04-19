@@ -81,6 +81,7 @@ class Study:
         while vasp.poll() is None:
             time.sleep(1)
             if self.contcar.check_updated():
+                time.sleep(0.5) # wait a moment to prevent read-write race
                 self.contcar.write_to_file(next_path(steps_dir / 'CONTCAR'))
         vasp.wait()
         vasp_out.close()
@@ -99,10 +100,11 @@ class Study:
             if action == 'Add':
                 if file_name == 'INCAR':
                     self.incar.append_line(line[action])
-            # overwrite the line with a given line number (e.g., 'L43' is Line 43)
+            # overwrite the line with a given line number (e.g., 'L43' is Line 43 and the index would be 42)
             elif action[0] == 'L':
                 if file_name == 'POSCAR':
-                    self.poscar.overwrite_line(action[1:], line[action])
+                    line_number = int(action[1:]) - 1
+                    self.poscar.overwrite_line(line_number, line[action])
 
 study_registry: dict[str, Study] = {}
 def register_study(cls):
