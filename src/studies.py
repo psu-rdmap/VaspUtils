@@ -99,12 +99,12 @@ class Study:
             # append the current line to the end
             if action == 'Add':
                 if file_name == 'INCAR':
-                    self.incar.append_line(line[action])
+                    self.incar.append_line(str(line[action]))
             # overwrite the line with a given line number (e.g., 'L43' is Line 43 and the index would be 42)
             elif action[0] == 'L':
                 if file_name == 'POSCAR':
                     line_number = int(action[1:]) - 1
-                    self.poscar.overwrite_line(line_number, line[action])
+                    self.poscar.overwrite_line(line_number, str(line[action]))
 
 study_registry: dict[str, Study] = {}
 def register_study(cls):
