@@ -191,8 +191,9 @@ class EosFit(Study):
         self.outcar.load_from_file(subdir_path / 'OUTCAR')
         with open(self.dir_path / 'data.out', 'w') as d:
             d.write(f'Volumes: {volumes}\n')
-            d.write(f'Energies: {energies}\n')
+            d.write(f'Energies: {[float(e) for e in energies]}\n')
             d.write(f'Equilibrium volume = {self.poscar.volume} A3\n')
             d.write(f'Equilibrium energy = {self.outcar.get_energy()} eV\n')
+            d.write(f"Equilibrium lattice constant = {self.poscar.lattice_parameters['a']}")
             d.write(f'Bulk modulus: {bulk_mod / kJ * 1.0e24}')
         logger.debug(f"Printed fit data to {self.dir_path / 'data.out'}")

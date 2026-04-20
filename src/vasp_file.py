@@ -117,6 +117,19 @@ class VaspPoscar(VaspFile):
 
         # calculate lattice parameters
         self.lattice_parameters = {}
+        if self.lattice_type in ['fcc_prim']:
+            self.lattice_parameters['a'] = (4*self.volume)**(1/3)
+        elif self.lattice_type in ['bcc_conv', 'fcc_conv']:
+            self.lattice_parameters['a'] = self.volume**(1/3)
+        elif self.lattice_type in ['fcc_super', 'bcc_super']:
+            ax, bx, cx = self.supercell_shape
+            if [ax]*3 == [ax, bx, cx]:
+                self.lattice_parameters['a'] = (self.scale_factor*self.lattice_vectors)[0][0] / ax
+            else:
+                raise ValueError(f'[{ax}x{bx}x{cx}] Supercell shape unsupported for fcc, bcc supercells')
+        else:
+            raise ValueError(f'[{self.lattice_type}] Lattice type is unsupported')
+
         logger.debug(f'{self.name}: updated supercell properties')
     
     def load_from_string(self, contents_str):
@@ -356,23 +369,6 @@ class VaspPoscar(VaspText):
             if all(np.isclose(l, check_arr, atol=1e-3)):
                 return i+8, l
 
-@register_study            
-class VaspPotcar(VaspText):
-    def __init__(self, path: Path, poscar: VaspPoscar):
-        self.species, _, _ = poscar.load_species()
-        with open(path, 'w') as p:
-            for s in self.species:
-                if s in semicore:
-                    s += '_pv'
-                potcar_path = potpaw_PBE_path / s / 'POTCAR'
-                try:
-                    with open(potcar_path) as src_p:
-                        p.writelines(src_p.readlines())
-                except:
-                    raise FileNotFoundError(f'[{potcar_path}] File does not exist')
-                p.write('\n\n')
-        super().__init__(path)
-
 @register_study
 class VaspOutcar(VaspText):
     def get_energy(self):
@@ -390,46 +386,4 @@ class VaspOutcar(VaspText):
                 last_line_w_free_magnetization = i
         magmom = strip_split(self.lines[last_line_w_free_magnetization+4])[-1]
         return float(magmom)
-
-@register_study
-class VaspContcar(VaspPoscar):
-    def __init__(self, path: Path):
-        super().__init__(path)
-        self.mtime = 0
-
-    def check_updated(self):
-        # copy CONTCAR if it exists and it has been updated
-        if self.exists:
-            new_mtime = self.path.stat().st_mtime
-            if new_mtime != self.mtime:
-                self.mtime = new_mtime
-                self.load_from_file()
-                return True
-            else:
-                return False
-        else:
-            self.update_existence()
-
-vasp_input_file_types = {
-        'INCAR': VaspIncar,
-        'POSCAR': VaspPoscar,
-        'KPOINTS': VaspText,
-        'POTCAR': VaspPotcar,
-}
-vasp_output_file_types = {
-        'CHG':      VaspText, 
-        'CHGCAR':   VaspText, 
-        'CONTCAR':  VaspContcar, 
-        'DOSCAR':   VaspText, 
-        'EIGENVAL': VaspText, 
-        'IBZKPT':   VaspText, 
-        'OSZICAR':  VaspText, 
-        'OUTCAR':   VaspOutcar, 
-        'PCDAT':    VaspText, 
-        'PROCAR':   VaspText, 
-        'REPORT':   VaspText, 
-        'WAVECAR':  VaspBinary, 
-        'XDATCAR':  VaspText,
-}
-vasp_file_types = vasp_input_file_types | vasp_output_file_types
 """
