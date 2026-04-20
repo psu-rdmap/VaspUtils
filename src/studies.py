@@ -160,10 +160,12 @@ class EosFit(Study):
             for step_num, step_params in self.calculation_params.items():
                 logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
                 super().run_vasp(subdir_path, step_params)
-                # get volume and energy
-                volumes.append(self.poscar.volume)
-                self.outcar = VaspOutcar(file_path = subdir_path / 'OUTCAR')
-                energies.append(self.outcar.get_energy())
+            # get volume and energy
+            volumes.append(self.poscar.volume)
+            logger.debug(f"Calculated volume: {self.poscar.volume}")
+            self.outcar = VaspOutcar(file_path = subdir_path / 'OUTCAR')
+            energies.append(self.outcar.get_energy())
+            logger.debug(f"Calculated energy: {self.outcar.get_energy()}")
 
         # fit EoS
         eos = EquationOfState(volumes, energies, eos='birchmurnaghan')
