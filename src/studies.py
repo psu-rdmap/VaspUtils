@@ -5,7 +5,7 @@ import subprocess, time, logging
 from ase.eos import EquationOfState
 from ase.units import kJ
 
-logger = logging.getLogger('main')
+logger = logging.getLogger('VaspUtils')
 
 class Study:
     """Baseclass for a DFT study which consists of at least one set of VASP calculations."""

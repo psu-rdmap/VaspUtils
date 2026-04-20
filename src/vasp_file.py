@@ -6,7 +6,7 @@ import logging
 
 potpaw_PBE_path = Path('/storage/group/xvw5285/default/ATAT/vasp_pots/potpaw_PBE.54/')
 
-logger = logging.getLogger('main')
+logger = logging.getLogger('VaspUtils')
 
 class VaspFile:
     def __init__(self, file_path: Path = None, contents_str: str = None):
@@ -195,38 +195,6 @@ class VaspContcar(VaspPoscar):
             return False
 
 """
-from pathlib import Path
-import pandas as pd
-import numpy as np
-import shutil
-from utils import strip_split
-
-potpaw_PBE_path = Path('/storage/group/xvw5285/default/ATAT/vasp_pots/potpaw_PBE.54/')
-semicore = ['Ni', 'Fe', 'Cr']
-
-class VaspFile:
-    "A input/output VASP file."
-    def __init__(self, path: Path):
-        self.path = path
-        self.exists = False
-        self.update_existence()
-
-    def update_existence(self):
-        self.exists = self.path.exists()
-
-vasp_file_registry: dict[str, VaspFile] = {}
-def register_study(cls):
-    vasp_file_registry[cls.__name__] = cls
-    return cls
-
-
-@register_study
-class VaspBinary(VaspFile):
-    "A binary VASP file which can not be read with open()."
-    def write_to_file(self, dest_path: Path):
-        assert self.exists, f'[{self.path}] File does not exist'
-        shutil.copy(self.path, dest_path)
-
 @register_study
 class VaspText(VaspFile):
     "A VASP file."

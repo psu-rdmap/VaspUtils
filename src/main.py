@@ -4,7 +4,7 @@ from studies import Study, study_registry
 
 # basic logger
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-logger = logging.getLogger('main')
+logger = logging.getLogger('VaspUtils')
 
 def main():
     # load input file
