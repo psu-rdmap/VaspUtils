@@ -136,12 +136,17 @@ class EosFit(Study):
         # special keywords
         try:
             self.finished = input_yml['finished']
+            self.prev_dir = input_yml['previous']
         except:
             self.finished = []
+            self.pred_dir = None
 
     def build_directory(self):
         """Subdirectories for each scale factor."""
-        self.dir_path = next_path(self.parent_dir_path / 'eos')
+        if self.prev_dir:
+            self.dir_path = self.parent_dir_path / self.prev_dir
+        else:
+            self.dir_path = next_path(self.parent_dir_path / 'eos')
         self.dir_path.mkdir(exist_ok=True)
         for sf in self.params['scaling']:
             # create subdirectory
