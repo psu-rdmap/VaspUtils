@@ -136,9 +136,8 @@ class VaspPoscar(VaspFile):
         species = strip_split(self.lines[5])
         amounts = strip_split(self.lines[6], item_type=int)
         species_list = []
-        for s in species:
-            for a in amounts:
-                species_list += [s]*a
+        for i, s in enumerate(species):
+            species_list += [s]*amounts[i]
         return species, amounts, species_list
     
     def load_from_string(self, contents_str):
@@ -201,7 +200,7 @@ class VaspOutcar(VaspFile):
             magmoms = {s: [] for s in species}
             for i, s in enumerate(species_list):
                 # take 'tot' value
-                magmom = strip_split(self.lines[last_line_w_magnetization+4+i], sep=' ', item_type=float)[-1]
+                magmom = strip_split(self.lines[last_line_w_magnetization+3+i], item_type=float)[-1]
                 magmoms[s].append(magmom)
             magmoms = {s: sum(magmoms[s]) / len(magmoms[s]) for s in species}
         else:
