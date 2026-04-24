@@ -1,5 +1,5 @@
 from vasp_file import VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar
-from utils import next_path
+from utils import next_path, wipe_directory
 from pathlib import Path
 import subprocess, time, logging
 from ase.eos import EquationOfState
@@ -147,14 +147,16 @@ class EosFit(Study):
             # create subdirectory
             subdir_path = self.dir_path / str(sf)
             subdir_path.mkdir(exist_ok=True)
-            # check if this sf has already been run
+            # cleanup directory and input files if sf has not already been run
             if sf not in self.finished:
+                wipe_directory(subdir_path)
                 self.write_input_files(subdir_path)
             self.subdir_paths[sf] = subdir_path
         # equilibrium subdirectory
         subdir_path = self.dir_path / 'eq'
         subdir_path.mkdir(exist_ok=True)
         if 'eq' not in self.finished:
+            wipe_directory(subdir_path)
             self.write_input_files(subdir_path)
 
     def run_vasp(self):
