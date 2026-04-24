@@ -131,20 +131,31 @@ class Individual(Study):
 @register_study
 class EosFit(Study):
     """Calculate energy for scaled up/down supercells and fit a V(E) equation of state."""
+    def __init__(self, input_yml):
+        super().__init__(input_yml)
+        # special keywords
+        try:
+            self.finished = input_yml['finished']
+        except:
+            self.finished = []
+
     def build_directory(self):
         """Subdirectories for each scale factor."""
         self.dir_path = next_path(self.parent_dir_path / 'eos')
-        self.dir_path.mkdir()
+        self.dir_path.mkdir(exist_ok=True)
         for sf in self.params['scaling']:
             # create subdirectory
             subdir_path = self.dir_path / str(sf)
-            subdir_path.mkdir()
-            self.write_input_files(subdir_path)
+            subdir_path.mkdir(exist_ok=True)
+            # check if this sf has already been run
+            if sf not in self.finished:
+                self.write_input_files(subdir_path)
             self.subdir_paths[sf] = subdir_path
         # equilibrium subdirectory
         subdir_path = self.dir_path / 'eq'
-        subdir_path.mkdir()
-        self.write_input_files(subdir_path)
+        subdir_path.mkdir(exist_ok=True)
+        if 'eq' not in self.finished:
+            self.write_input_files(subdir_path)
 
     def run_vasp(self):
         # calculate energies for fitting
@@ -155,11 +166,14 @@ class EosFit(Study):
             self.load_input_files(subdir_path)
             self.update_input_file('POSCAR', [{'L2': sf}])
             logger.debug(f"Loaded input files for scale factor {sf}")
-            # individual steps
-            num_steps = len(self.calculation_params.keys())
-            for step_num, step_params in self.calculation_params.items():
-                logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
-                super().run_vasp(subdir_path, step_params)
+            # run vasp if it has not already been run
+            if sf not in self.finished:
+                num_steps = len(self.calculation_params.keys())
+                for step_num, step_params in self.calculation_params.items():
+                    logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
+                    super().run_vasp(subdir_path, step_params)
+            else:
+                logger.debug(f"Skipping calculations since {sf} has already run")
             # get volume and energy
             volumes.append(self.poscar.volume)
             logger.debug(f"Calculated volume: {self.poscar.volume}")
@@ -179,13 +193,16 @@ class EosFit(Study):
         eq_vol_factor = eq_vol / self.poscar.volume
         eq_sf = self.poscar.scale_factor*(eq_vol_factor)**(1/3)
         self.update_input_file('POSCAR', [{'L2': eq_sf}])
-        logger.debug(f"Loaded input files for equilibrium scale factor {sf}")
+        logger.debug(f"Loaded input files for equilibrium scale factor {eq_sf}")
 
         # calculate equilibrium energy
-        num_steps = len(self.calculation_params.keys())
-        for step_num, step_params in self.calculation_params.items():
-            logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
-            super().run_vasp(subdir_path, step_params)
+        if sf not in self.finished:
+            num_steps = len(self.calculation_params.keys())
+            for step_num, step_params in self.calculation_params.items():
+                logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
+                super().run_vasp(subdir_path, step_params)
+        else:
+            logger.debug(f"Skipping equilibrium calculations since it has already run")
 
         # print out data
         self.outcar.load_from_file(subdir_path / 'OUTCAR')
@@ -196,4 +213,9 @@ class EosFit(Study):
             d.write(f'Equilibrium energy = {self.outcar.get_energy()} eV\n')
             d.write(f"Equilibrium lattice constant = {self.poscar.lattice_parameters['a']}")
             d.write(f'Bulk modulus: {bulk_mod / kJ * 1.0e24}')
+            d.write(f'Average magnetic moments:')
+            magmoms: dict[str, float] = self.outcar.get_magmom()
+            if magmoms:
+                for species, magmom in magmoms.items():
+                    d.write(f'\t{species} = {magmom}')
         logger.debug(f"Printed fit data to {self.dir_path / 'data.out'}")

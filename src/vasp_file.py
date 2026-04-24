@@ -132,6 +132,15 @@ class VaspPoscar(VaspFile):
 
         logger.debug(f'{self.name}: updated supercell properties')
     
+    def get_species(self):
+        species = strip_split(self.lines[5])
+        amounts = strip_split(self.lines[6], item_type=int)
+        species_list = []
+        for s in species:
+            for a in amounts:
+                species_list += [s]*a
+        return species, amounts, species_list
+    
     def load_from_string(self, contents_str):
         super().load_from_string(contents_str)
         self.update_supercell_properties()
@@ -172,12 +181,32 @@ class VaspPotcar(VaspFile):
 
 class VaspOutcar(VaspFile):
     def get_energy(self):
+        """Scrub through OUTCAR until the last energy is read."""
         last_line_w_energy = None
         for line in self.lines:
             if 'energy(sigma->0)' in line:
                 last_line_w_energy = line
         energy = strip_split(last_line_w_energy)[-1]
         return float(energy)
+    
+    def get_magmom(self, poscar: VaspPoscar):
+        """Scrub through OUTCAR until the magnetization is found and return average moment by ion species."""
+        last_line_w_magnetization = None
+        for i, line in enumerate(self.lines):
+            if 'magnetization (x)' in line:
+                last_line_w_magnetization = i
+        # decomposed magnetic moments found
+        if last_line_w_magnetization:
+            species, amounts, species_list = poscar.get_species()
+            magmoms = {s: [] for s in species}
+            for i, s in enumerate(species_list):
+                # take 'tot' value
+                magmom = strip_split(self.lines[last_line_w_magnetization+4+i], sep=' ', item_type=float)[-1]
+                magmoms[s].append(magmom)
+            magmoms = {s: sum(magmoms[s]) / len(magmoms[s]) for s in species}
+        else:
+            magmoms = None
+        return magmoms
     
 class VaspContcar(VaspPoscar):
     def __init__(self, file_path=None, contents_str=None):
@@ -195,129 +224,13 @@ class VaspContcar(VaspPoscar):
             return False
 
 """
-@register_study
-class VaspText(VaspFile):
-    "A VASP file."
-    def __init__(self, path: Path):
-        super().__init__(path)
-        self.lines = None
-        self.update_existence()
-
-    def update_existence(self):
-        super().update_existence()
-        if self.exists:
-            self.load_from_file()
-
-    def load_from_file(self):
-        with open(self.path, 'r') as f:
-            self.lines = f.readlines()
-        self.exists = True
-
-    def load_from_string(self, contents_str: str):
-        lines = contents_str.split('\n')
-        # remove single \n
-        lines = [l.strip() for l in lines if l != '']
-    
-    def write_to_file(self, dest_path: Path):
-        with open(dest_path, 'w') as d:
-            d.writelines(self.lines)
-        self.exists = True
-
-    def overwrite_line(self, line_idx: int, new_line: str):
-        self.lines[line_idx] = new_line
-        self.write_to_file(self.path)
-
-    def remove_line(self, line_idx: int):
-        self.lines.pop(line_idx)
-        self.write_to_file(self.path)
-
-    def add_line(self, line_idx: int, new_line: str):
-        self.lines.insert(line_idx, new_line)
-        self.write_to_file(self.path)
-
-    def append_line(self, new_line: str):
-        self.lines.append(new_line)
-        self.write_to_file(self.path)
-
-    def remove_file_suffix(self):
-        if len(self.path.suffix) == 0:
-            return
-        else:
-            new_file_path = self.path.parent / self.path.name
-            assert not new_file_path.exists(), f'[{self.path}] Can not rename file, it already exists'
-            self.path.unlink()
-            self.path = new_file_path
-            self.write_to_file(new_file_path)
-
-@register_study
-class VaspIncar(VaspText):
-    def check_by_keyword(self, vasp_kw: str):
-        for i, l in enumerate(self.lines):
-            current_kw = strip_split(l, sep='=')[0]
-            if vasp_kw in current_kw:
-                return i, l
-        return None
-            
-    def add_line(self, line_idx: int, new_line: str):
-        # overwrite keyword if it exists rather than inserting
-        new_line_kw = strip_split(new_line, sep='=')[0]
-        current_line = self.check_by_keyword(new_line_kw)
-        if current_line is None:
-            super().add_line(line_idx, new_line)
-        else:
-            self.overwrite_line(current_line[0], new_line)
-
-    def append_line(self, new_line: str):
-        # overwrite keyword if it exists rather than appending
-        new_line_kw = strip_split(new_line, sep='=')[0]
-        current_line = self.check_by_keyword(new_line_kw)
-        if current_line is None:
-            super().append_line(new_line)
-        else:
-            self.overwrite_line(current_line[0], new_line)
-
+class VaspIncar(VaspText):            
     def remove_line(self, vasp_kw: str):
         current_line = self.check_by_keyword(vasp_kw)
         if current_line is not None:
             super().remove_line(current_line[0])
 
-
-@register_study
 class VaspPoscar(VaspText):
-    def decode_comment(self):
-        lattice_type, supercell_shape = None, None
-        comment_line = strip_split(self.lines[0])
-        for val in comment_line:
-            if val in ['fcc_prim', 'bcc_conv', 'hcp_prim', 'fcc_conv', 'fcc_super', 'bcc_super', 'hcp_super']:
-                lattice_type = val
-            elif val in ['1x1x1', '2x2x2', '3x3x3', '4x4x4', '3x3x2']:
-                supercell_shape = val.split('x')
-                supercell_shape = [float(v) for v in supercell_shape] 
-            else:
-                raise ValueError(f'[{val}] Unrecognized keyword in POSCAR comment line')
-        if lattice_type is None:
-            raise ValueError(f'[{self.path}] POSCAR is missing lattice type keyword in comment line')
-        return lattice_type, supercell_shape
-
-    def load_scale_factor(self):
-        return float(self.lines[1].strip())
-
-    def load_lattice_vectors(self):
-        lattice_vectors = []
-        for l in self.lines[2:5]:
-            lv = strip_split(l, item_type=float)
-            lattice_vectors.append(lv)
-        return np.array(lattice_vectors)
-    
-    def load_species(self):
-        species = strip_split(self.lines[5])
-        amounts = strip_split(self.lines[6], item_type=int)
-        species_list = []
-        for s in species:
-            for a in amounts:
-                species_list += [s]*a
-        return species, amounts, species_list
-
     def load_ion_positions(self, as_df=False):
         _, amounts, _ = self.load_species()
         if as_df:
@@ -336,22 +249,4 @@ class VaspPoscar(VaspText):
             check_arr = np.array(position)
             if all(np.isclose(l, check_arr, atol=1e-3)):
                 return i+8, l
-
-@register_study
-class VaspOutcar(VaspText):
-    def get_energy(self):
-        last_line_w_free_energy = None
-        for line in self.lines:
-            if 'free energy' in line:
-                last_line_w_free_energy = line
-        energy = strip_split(last_line_w_free_energy)[4]
-        return float(energy)
-
-    def get_magmom(self):
-        last_line_w_magnetization = None
-        for i, line in enumerate(self.lines):
-            if 'magnetization' in line:
-                last_line_w_free_magnetization = i
-        magmom = strip_split(self.lines[last_line_w_free_magnetization+4])[-1]
-        return float(magmom)
 """
