@@ -135,16 +135,17 @@ class EosFit(Study):
         super().__init__(input_yml)
         # special keywords
         try:
-            self.finished = input_yml['finished']
-            self.prev_dir = input_yml['previous']
+            self.finished = self.params['finished']
+            self.resume_dir = self.params['resume']
         except:
             self.finished = []
-            self.pred_dir = None
+            self.resume_dir = None
 
     def build_directory(self):
         """Subdirectories for each scale factor."""
-        if self.prev_dir:
-            self.dir_path = self.parent_dir_path / self.prev_dir
+        if self.resume_dir:
+            self.dir_path = self.parent_dir_path / self.resume_dir
+            logger.debug(f'Resuming from {self.dir_path}')
         else:
             self.dir_path = next_path(self.parent_dir_path / 'eos')
         self.dir_path.mkdir(exist_ok=True)
