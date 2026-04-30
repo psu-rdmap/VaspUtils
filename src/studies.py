@@ -1,11 +1,14 @@
 from vasp_file import VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar
-from utils import next_path, wipe_directory
+from utils import next_path, wipe_directory, strip_split
 from pathlib import Path
 import subprocess, time, logging
 from ase.eos import EquationOfState
 from ase.units import kJ
+import matplotlib.pyplot as plt
+import pandas as pd
 
 logger = logging.getLogger('VaspUtils')
+logging.getLogger("matplotlib").setLevel(logging.WARNING)
 
 class Study:
     """Baseclass for a DFT study which consists of at least one set of VASP calculations."""
@@ -227,3 +230,128 @@ class EosFit(Study):
                 for species, magmom in magmoms.items():
                     d.write(f'\t{species} = {magmom}')
         logger.debug(f"Printed fit data to {self.dir_path / 'data.out'}")
+
+@register_study
+class Benchmark(Study):
+    """Benchmark KPAR and NCORE for a given test system."""
+    def __init__(self, input_yml):
+        super().__init__(input_yml)
+        # determine allowable KPAR and corresponding NCORE values
+        self.cores = min(self.params['cores'], 48)
+        self.kpar: dict[int, list[int]] = {}
+        logger.debug(f"Determining valid KPAR, NCORE combinations...")
+        for k in range(len(self.params['max_kpar'])):
+            # allowable kpoint -> ncore_per_kpoint must be integer
+            ncore_per_kpoint = self.cores / k
+            if ncore_per_kpoint % 1 != 0:
+                continue
+            # allowable ncore -> ncore_per_band must be integer
+            ncore = []
+            for n in range(self.cores):
+                ncore_per_band = ncore_per_kpoint / n
+                if ncore_per_band % 1 == 0:
+                    ncore.append(n)
+            self.kpar[k] = ncore
+            logger.debug(f"KPAR={k} works for NCORE={ncore}")
+        
+        # define job files lines
+        self.job = [
+            "#!/bin/bash/\n",
+            f"#SBATCH --account={self.params['account']}\n",
+            f"#SBATCH --nodes=1\n",
+            f"#SBATCH --ntasks={self.params['cores']}\n",
+            f"SBATCH --mem-per-cpu=8GB\n",
+            f"#SBATCH --time={self.params['max_time']}\n",
+            f"SECONDS=0\n",
+            f"cd PATH\n",
+            f"srun --kill-on-bad-exit --cpu-bind=cores vasp_std > vasp.out\n",
+            f"ELAPSED=$SECONDS\n",
+            f"echo $ELAPSED > time.out\n",
+        ]
+            
+    def build_directory(self):
+        """Subdirectories for each KPAR and NCORE calculation."""
+        # top level directory
+        self.dir_path = next_path(self.parent_dir_path / 'benchmark')
+        self.dir_path.mkdir(exist_ok=True)
+        # individual KPAR=K and NCORE=N directories
+        for k, n_list in self.kpar.items():
+            n_subdir_paths: dict[int, str] = {}
+            for n in n_list:
+                subdir_path = self.dir_path / f"KPAR={k}" / f"NCORE={n}"
+                subdir_path.mkdir(parents=True)
+                self.write_input_files(subdir_path)
+                # update path in job file and write it
+                self.job[7] = f"cd {self.dir_path}"
+                with open(subdir_path / 'run', 'w') as r:
+                    r.writelines(self.job)
+                n_subdir_paths[n] = subdir_path
+            self.subdir_paths[k] = n_subdir_paths  
+
+    def run_vasp(self):
+        """Schedule all jobs, wait until they are done, and extract elapsed time."""
+        # submit jobs and increment counter
+        num_unfinished_jobs = 0
+        times: dict[int, dict[int, int]] = {}
+        for k, n_list in self.kpar.items():
+            n_times: dict[int, int] = {}
+            for n in n_list:
+                run_path = self.subdir_paths[k][n] / 'run'
+                vasp = subprocess.Popen(f"sbatch {run_path}", cwd=run_path, stderr=subprocess.STDOUT)
+                logger.debug(f"Submitted VASP job in {run_path}")
+                num_unfinished_jobs += 1
+                n_times[n] = 0
+            times[k] = n_times
+
+        # wait until all jobs are finished
+        times = {}
+        while num_unfinished_jobs:
+            for k, n_list in self.kpar.items():
+                for n in n_list:
+                    check_fp: Path = self.subdir_paths[k][n] / 'time.out'
+                    # VASP finished -> time.out created and the elapsed wall time is available
+                    if check_fp.exists():
+                        num_unfinished_jobs -= 1
+                        with open(check_fp, 'r') as t:
+                            time_line = t.readline()
+                        elapsed = strip_split(time_line, '=')[-1]
+                        times[k][n] = elapsed
+                        logger.debug(f"({num_unfinished_jobs}) Job at {check_fp} finished. Wall time = {elapsed}s")
+                    else:
+                        time.sleep(1)
+
+        # write times to an output file
+        times_df = pd.DataFrame(times)
+        with open(self.parent_dir_path / 'times.dat', 'w') as d:
+            print(times_df, file=d)
+        logger.debug(f"Wrote simulation times at {self.parent_dir_path / 'times.dat'}")
+
+        # plot NCORE on x-axis, time on y-axis, and KPAR as different series
+        baseline = times[1][1]
+        for k, n_times in times.items():
+            x, y = [], []
+            for n, t in n_times.items():
+                x.append(n)
+                y.append(t / baseline)
+            plt.plot(x, y, label=f'KPAR={k}')
+        plt.xlabel('NCORE')
+        plt.ylabel('Calculation Time (rel.)')
+        plt.savefig(self.parent_dir_path / 'times.png')
+        plt.close()
+        logger.debug(f"Plotted NCORE and KPAR values and saved figure at {self.parent_dir_path / 'times.png'}")
+
+        # plot best NCORE and KPAR
+        x, y = [], []
+        for k in times.keys():
+            x.append(k)
+            y.append(times_df[k].min() / baseline)
+        plt.plot(x, y, label='KPAR')
+        x, y = [], []
+        for n in times[1].keys():
+            x.append(n)
+            y.append(times_df.loc[k].min() / baseline)
+        plt.plot(x, y, label='NCORE')
+        plt.xlabel('Tag Value')
+        plt.ylabel('Best Calculation Time (rel.)')
+        plt.savefig(self.parent_dir_path / 'best_times.png')
+        logger.debug(f"Plotted best NCORE and KPAR values and saved figure at {self.parent_dir_path / 'best_times.png'}")
