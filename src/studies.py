@@ -1,7 +1,7 @@
 from vasp_file import VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar
 from utils import next_path, wipe_directory, strip_split
 from pathlib import Path
-import subprocess, time, logging
+import subprocess, time, logging, math
 from ase.eos import EquationOfState
 from ase.units import kJ
 import matplotlib.pyplot as plt
@@ -240,14 +240,14 @@ class Benchmark(Study):
         self.cores = min(self.params['cores'], 48)
         self.kpar: dict[int, list[int]] = {}
         logger.debug(f"Determining valid KPAR, NCORE combinations...")
-        for k in range(len(self.params['max_kpar'])):
+        for k in range(1, self.params['max_kpar']+1):
             # allowable kpoint -> ncore_per_kpoint must be integer
             ncore_per_kpoint = self.cores / k
             if ncore_per_kpoint % 1 != 0:
                 continue
             # allowable ncore -> ncore_per_band must be integer
             ncore = []
-            for n in range(self.cores):
+            for n in range(1, self.cores+1):
                 ncore_per_band = ncore_per_kpoint / n
                 if ncore_per_band % 1 == 0:
                     ncore.append(n)
@@ -255,13 +255,15 @@ class Benchmark(Study):
             logger.debug(f"KPAR={k} works for NCORE={ncore}")
         
         # define job files lines
+        max_time = self.params['max_time']
+        max_time_str = f"{int(max_time/3600):02d}:{int((max_time/60)%60):02d}:{int(max_time%60):02d}"
         self.job = [
             "#!/bin/bash/\n",
             f"#SBATCH --account={self.params['account']}\n",
             f"#SBATCH --nodes=1\n",
             f"#SBATCH --ntasks={self.params['cores']}\n",
-            f"SBATCH --mem-per-cpu=8GB\n",
-            f"#SBATCH --time={self.params['max_time']}\n",
+            f"#SBATCH --mem-per-cpu=8GB\n",
+            f"#SBATCH --time={max_time_str}\n",
             f"SECONDS=0\n",
             f"cd PATH\n",
             f"srun --kill-on-bad-exit --cpu-bind=cores vasp_std > vasp.out\n",
@@ -280,13 +282,14 @@ class Benchmark(Study):
             for n in n_list:
                 subdir_path = self.dir_path / f"KPAR={k}" / f"NCORE={n}"
                 subdir_path.mkdir(parents=True)
+                self.update_input_file('INCAR', [{'Add': f'KPAR = {k}'}, {'Add': f'NCORE = {n}'}])
                 self.write_input_files(subdir_path)
                 # update path in job file and write it
-                self.job[7] = f"cd {self.dir_path}"
+                self.job[7] = f"cd {self.dir_path}\n"
                 with open(subdir_path / 'run', 'w') as r:
                     r.writelines(self.job)
                 n_subdir_paths[n] = subdir_path
-            self.subdir_paths[k] = n_subdir_paths  
+            self.subdir_paths[k] = n_subdir_paths
 
     def run_vasp(self):
         """Schedule all jobs, wait until they are done, and extract elapsed time."""
