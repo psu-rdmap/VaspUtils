@@ -285,7 +285,7 @@ class Benchmark(Study):
                 self.update_input_file('INCAR', [{'Add': f'KPAR = {k}'}, {'Add': f'NCORE = {n}'}])
                 self.write_input_files(subdir_path)
                 # update path in job file and write it
-                self.job[7] = f"cd {self.dir_path}\n"
+                self.job[7] = f"cd {subdir_path}\n"
                 with open(subdir_path / 'run', 'w') as r:
                     r.writelines(self.job)
                 n_subdir_paths[n] = subdir_path
@@ -299,8 +299,8 @@ class Benchmark(Study):
         for k, n_list in self.kpar.items():
             n_times: dict[int, int] = {}
             for n in n_list:
-                run_path = self.subdir_paths[k][n] / 'run'
-                vasp = subprocess.Popen(f"sbatch {run_path}", cwd=run_path, stderr=subprocess.STDOUT)
+                run_path: Path = self.subdir_paths[k][n] / 'run'
+                vasp = subprocess.Popen(f"sbatch {run_path}", cwd=run_path.parent, stderr=subprocess.STDOUT)
                 logger.debug(f"Submitted VASP job in {run_path}")
                 num_unfinished_jobs += 1
                 n_times[n] = 0
