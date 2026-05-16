@@ -1,4 +1,4 @@
-from vasp_file import VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar
+from vasp_file import VaspFile, VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar
 from utils import next_path, wipe_directory, strip_split
 from pathlib import Path
 import subprocess, time, logging
@@ -22,11 +22,14 @@ class Study:
         self.params = input_yml['study']['parameters']
         self.calculation_params = input_yml['calculation']
 
+        # get POTCAR names to define the file
+        self.potcar_names = [n.strip() for n in input_yml['study']['POTCAR'].split('\n')]
+
         # load VASP input files from user input
         self.incar = VaspIncar(contents_str=input_yml['study']['INCAR'])
         self.poscar = VaspPoscar(contents_str=input_yml['study']['POSCAR'])
         self.kpoints = VaspKPoints(contents_str=input_yml['study']['KPOINTS'])
-        self.potcar = VaspPotcar(contents_str=input_yml['study']['POTCAR'])
+        self.potcar = VaspPotcar(self.potcar_names, self.poscar)        
         logger.debug('Initialized VASP input file objects from user input')
 
         # build directory and run vasp (implemented by subclasses)
@@ -48,7 +51,7 @@ class Study:
         self.incar = VaspIncar(file_path = dir_path / 'INCAR')
         self.poscar = VaspPoscar(file_path=dir_path / 'POSCAR')
         self.kpoints = VaspKPoints(file_path=dir_path / 'KPOINTS')
-        self.potcar = VaspPotcar(file_path=dir_path / 'POTCAR')
+        self.potcar = VaspPotcar(self.potcar_names, self.poscar)
     
     def run_vasp(self, run_path: Path):
         """Run VASP in the background and perform any necessary supporting operations."""
@@ -105,10 +108,12 @@ class Study:
             action = next(iter([k for k in line.keys()]))
             logger.debug(f'Action: {action}')
             logger.debug(f'Line: {line[action]}')
+
             # append the current line to the end
             if action == 'Add':
                 if file_name == 'INCAR':
                     self.incar.append_line(str(line[action]))
+
             # overwrite the line with a given line number (e.g., 'L43' is Line 43 and the index would be 42)
             elif action[0] == 'L':
                 if file_name == 'POSCAR':
@@ -154,6 +159,7 @@ class EosFit(Study):
         else:
             self.dir_path = next_path(self.parent_dir_path / 'eos')
         self.dir_path.mkdir(exist_ok=True)
+
         for sf in self.params['scaling']:
             # create subdirectory
             subdir_path = self.dir_path / str(sf)
@@ -163,6 +169,7 @@ class EosFit(Study):
                 wipe_directory(subdir_path)
                 self.write_input_files(subdir_path)
             self.subdir_paths[sf] = subdir_path
+
         # equilibrium subdirectory
         subdir_path = self.dir_path / 'eq'
         subdir_path.mkdir(exist_ok=True)
@@ -386,12 +393,22 @@ class PointDefectFormation(Study):
             perfect_outcar.write_to_file(self.perfect_subdir_path / 'OUTCAR')
             logger.debug(f"Perfect system OUTCAR copied from {self.perfect_path / 'CONTCAR'}")
         # insert the defect
+        defect_pos = np.array(self.params['position'])
         if self.params['defect'] == 'vac':
-            defect_pos = np.array(self.params['position'])
             self.poscar.remove_ion(defect_pos, self.incar)
             logger.debug(f"Inserted vacancy near {str(defect_pos)}")
+        elif self.params['defect'] == 'sub':
+            rm_ion_pos = self.poscar.remove_ion(defect_pos, self.incar)
+            try:
+                magmom = self.params['magmom']
+            except:
+                magmom = None
+            self.poscar.add_ion(self.params['species'], rm_ion_pos, self.incar, magmom=magmom)
+            logger.debug(f"Inserted substitutional impurity near {str(defect_pos)}")
         # adjust INCAR
         self.update_input_file('INCAR', [{'Add': f'ISYM = 0'}]) # disable symmetry
+        # update POTCAR in case species were added
+        self.potcar = VaspPotcar(self.potcar_names, self.poscar)
         # defective system
         self.defective_subdir_path = self.dir_path / 'defective'
         self.defective_subdir_path.mkdir()

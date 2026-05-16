@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import logging
 
-potpaw_PBE_path = Path('/storage/group/xvw5285/default/ATAT/vasp_pots/potpaw_PBE.54/')
+POTPAW_PBE_PATH = Path('/storage/group/xvw5285/default/ATAT/vasp_pots/potpaw_PBE.54/')
 
 logger = logging.getLogger('VaspUtils')
 
@@ -51,6 +51,12 @@ class VaspFile:
         if overwrite_path:
             self.path = dest_path
             logger.debug(f'{self.name}: updated current path to {dest_path}')
+
+    def insert_line(self, line_number: int, new_line: str):
+        """Insert a line at a given line number and overwrite the existing file if it exists."""
+        self.lines.insert(line_number, new_line)
+        if self.path:
+            self.write_to_file(self.path)
 
     def append_line(self, new_line: str):
         """Append a line and overwrite the existing file if it exists."""
@@ -101,7 +107,7 @@ class VaspIncar(VaspFile):
             return None
         _, magmom_line = magmom_line
         magmoms = strip_split(strip_split(magmom_line, '=')[1])
-        magmoms_list = []
+        magmoms_list: list[str] = []
         for mag in magmoms:
             mag = mag.split('*')
             # two items corresponding to amt*val
@@ -110,6 +116,14 @@ class VaspIncar(VaspFile):
             elif len(mag) == 1:
                 magmoms_list += [mag[0]]
         return magmoms_list
+
+    def load_magmoms_from_list(self, magmom_list: list[str]):
+        unique_magmoms = dict.fromkeys(magmom_list)
+        new_magmom_str = 'MAGMOM ='
+        for mag in unique_magmoms.keys():
+            num_mag = len([m for m in magmom_list if mag == m])
+            new_magmom_str += f' {num_mag}*{mag}'
+        self.append_line(new_magmom_str)
 
 class VaspPoscar(VaspFile):
     def __init__(self, file_path=None, contents_str=None):
@@ -170,7 +184,7 @@ class VaspPoscar(VaspFile):
     
     def get_ion_positions(self):
         _, amounts, _ = self.get_species()
-        ion_positions = []
+        ion_positions: list[np.ndarray] = []
         for l in self.lines[8:8+sum(amounts)]:
             ion_positions.append(np.array(strip_split(l, item_type=float)))
         return ion_positions
@@ -187,10 +201,11 @@ class VaspPoscar(VaspFile):
         super().overwrite_line(line_number, new_line)
         self.update_supercell_properties()
     
-    def remove_ion(self, defect_pos: np.ndarray[float], incar: VaspIncar):
+    def remove_ion(self, defect_pos: np.ndarray[float], incar: VaspIncar) -> float:
         """Remove ion closest to the provided position and adjust species line and INCAR magmom line accordingly."""
-        distances = []
+        positions, distances = [], []
         for pos in self.get_ion_positions():
+            positions.append(pos)
             distances.append(np.linalg.norm(pos - defect_pos))
         rm_pos_idx = distances.index(min(distances))
         self.remove_line(rm_pos_idx+8)
@@ -199,30 +214,74 @@ class VaspPoscar(VaspFile):
         species_name = species_list[rm_pos_idx]
         # decrement and overwrite species amount corresponding to determined name above
         amounts[species.index(species_name)] -= 1
-        self.overwrite_line(6, tilps(amounts, sep = '\t', precision = 0))
+        self.overwrite_line(6, tilps(amounts, sep='\t', precision=0))
         # remove magnetic moment from magmom list and rebuild MAGMOM line
         magmom_list = incar.get_magmoms()
         if magmom_list:
             magmom_list.pop(rm_pos_idx)
-            unique_magmoms = dict.fromkeys(magmom_list)
-            new_magmom_str = 'MAGMOM ='
-            for mag in unique_magmoms.keys():
-                num_mag = len([m for m in magmom_list if mag == m])
-                new_magmom_str += f' {num_mag}*{mag}'
-            incar.append_line(new_magmom_str)
+            incar.load_magmoms_from_list(magmom_list)
+        # return position value of removed ion
+        return positions[rm_pos_idx]
+
+    def add_ion(self, defect_species: str, defect_pos: np.ndarray[float], incar: VaspIncar, magmom: float = None):
+        """Add ion at a given position and adjust species and INCAR magmom line accordingly."""
+        defect_pos = [str(val) for val in defect_pos.tolist()]
+        species, amounts, species_list = self.get_species()
+        magmom_list = incar.get_magmoms()
+        # species is new -> append it to end of list
+        if defect_species not in species:
+            species += defect_species
+            amounts += [1]
+            self.overwrite_line(5, tilps(species, sep='\t', precision=0))
+            self.overwrite_line(6, tilps(amounts, sep='\t', precision=0))
+            self.insert_line(len(species_list)+8, tilps(defect_pos, sep='  '))
+            if magmom_list:
+                magmom_list.append(f'{magmom:.2f}')
+                incar.load_magmoms_from_list(magmom_list)
+        # species is not new -> append it to end of specific species list
+        else:
+            amounts[species.index(defect_species)] += 1
+            self.overwrite_line(6, tilps(amounts, sep='\t', precision=0))
+            insert_idx = amounts[species.index(defect_species)] - 1
+            self.insert_line(insert_idx+8, tilps(defect_pos, sep='  '))
+            if magmom_list:
+                # give it the provided magmom value
+                if magmom:
+                    magmom_list.insert(insert_idx, f'{magmom:.2f}')
+                # give it the value of others like it
+                else:
+                    magmom_list.insert(insert_idx, magmom_list[insert_idx-1])
+                incar.load_magmoms_from_list(magmom_list)
 
 class VaspKPoints(VaspFile):
     pass
          
 class VaspPotcar(VaspFile):
-    def load_from_string(self, contents_str):
-        """Iterates over list of directory names (e.g., ['Co', 'Ni_pv']) and loads corresponding POTCAR files with trailing newline characters removed."""
-        # load directory names
-        super().load_from_string(contents_str)
-        # load POTCAR for each directory name
+    def __init__(self, potcar_names: list[str], poscar: VaspPoscar):
+        self.name = self.__class__.__name__
+        self.lines: list[str] = None
+        self.path: Path = None
+        self.potcar_names = potcar_names
+        self.ref_poscar = None
+        self.load_from_poscar(poscar)
+
+    def load_from_poscar(self, poscar: VaspPoscar):
+        """Given species in a POSCAR file, load the desired POTCAR files in order."""
+        self.ref_poscar = poscar
         potcar_lines: list[str] = []
-        for potcar_dir in self.lines:
-            potcar_path = potpaw_PBE_path / potcar_dir / 'POTCAR'
+        current_potcar_names = []
+        for sp in self.ref_poscar.get_species()[0]:
+            potcar_dirname = None
+            # determine which name corresponds to this species
+            for nm in self.potcar_names:
+                if sp in nm:
+                    potcar_dirname = nm
+            # user did not provide a POTCAR dir name -> use species name as default
+            if potcar_dirname is None:
+                potcar_dirname = sp
+            # get lines
+            current_potcar_names.append(potcar_dirname)
+            potcar_path = POTPAW_PBE_PATH / potcar_dirname / 'POTCAR'
             try:
                 with open(potcar_path) as src_p:
                     potcar_lines += src_p.readlines()
@@ -230,9 +289,8 @@ class VaspPotcar(VaspFile):
                 raise FileNotFoundError(f'[{potcar_path}] File does not exist')
         # remove trailing \n characters
         potcar_lines = [l.strip('\n') for l in potcar_lines]
-        logger.debug(f'{self.name}: loaded lines for {self.lines}')
-        self.lines = potcar_lines
-
+        logger.debug(f'{self.name}: loaded lines for {current_potcar_names}')
+        
 class VaspOutcar(VaspFile):
     def get_energy(self):
         """Scrub through OUTCAR until the last energy is read."""

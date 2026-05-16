@@ -84,15 +84,19 @@ parameters:
 
 ## `PointDefectFormation`
 
-This study calculates the formation energy of a vacancy or self-interstitial.
+This study calculates the formation energy of a vacancy (`vac`) or substitutional impurity (`sub`).
 
-While the default behavior is to relax both the perfect and defective systems, most likely the perfect system has already been relaxed. In this case, the `perfect` parameter provides the path to the directory where VASP was run, containing the CONTCAR and OUTCAR files. Since the relaxed ion positions are already defined via the CONTCAR file, the `POSCAR` section is ignored and the defective system uses the found CONTCAR file. To use the default behavior, simply exclude the `perfect` parameter from the input YAML file.
+While the default behavior is to relax both the perfect and defective systems, most likely the perfect system has already been relaxed. In this case, the `perfect` parameter provides the path to the directory where VASP was run, containing the CONTCAR and OUTCAR files. Since the relaxed ion positions are already defined via the CONTCAR file, the `POSCAR` section is ignored and the defective system uses the found CONTCAR file. To use the default behavior (relaxing the perfect system first), simply exclude the `perfect` parameter from the input YAML file.
+
+For impurity defects, the element type of the impurity is provided by the `species` parameter. This is used to update the POSCAR species and to load a POTCAR for it. If a specific POTCAR is desired (e.g., X_sv), it can be included in the `POTCAR` section. Order does not matter. Additionally, if spin-polarization is turned on, the impurity initial magnetic moment can be provided via the `magmom` parameter.
 
 ```yaml
 parameters: 
     type: PointDefectFormation
     perfect: <optional, path to already relaxed perfect system containing CONTCAR and OUTCAR>
-    defect: vac
+    defect: vac, sub
+    species: <optional, element of substitutional impurity>
+    magmom: <optional, initial magnetic moment for the substitutional impurity if doing spin-polarization>
     position: <approximate location of site to insert defect at (e.g., 0.5 0.5 0.5)>
     chemical_pot: <optional, value of chemical potential (eV) for point defect>
 ```
