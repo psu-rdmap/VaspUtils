@@ -50,58 +50,54 @@ class Study:
         self.kpoints = VaspKPoints(file_path=dir_path / 'KPOINTS')
         self.potcar = VaspPotcar(file_path=dir_path / 'POTCAR')
     
-    def single_run_vasp(self, run_path: Path, step_params: dict):
+    def run_vasp(self, run_path: Path):
         """Run VASP in the background and perform any necessary supporting operations."""
-        # update input files with calculation step parameters
-        for key in step_params.keys():
-            if key == 'name':
-                pass
-            else:
-                logger.debug(f'Updating input file {key}')
-                self.update_input_file(key, step_params[key])
-
-        # initialize steps directory
-        steps_dir = run_path / 'steps'
-        steps_dir.mkdir(exist_ok=True)
-
-        # run vasp in the background
-        vasp_out = open(run_path / 'vasp.out', 'a')
-        vasp_cmd = ['srun', '--kill-on-bad-exit', '--cpu-bind=cores', 'vasp_std']
-        vasp = subprocess.Popen(vasp_cmd, cwd=run_path, stdout=vasp_out, stderr=subprocess.STDOUT)
-        logger.debug(f'VASP launched')
-
-        # load CONTCAR after the first scf cycle
-        contcar_loaded = False
-        contcar_path = run_path / 'CONTCAR'
-        while contcar_loaded is False:
-            time.sleep(1)
-            if not contcar_path.exists():
-                continue
-            with open(contcar_path, 'r') as f:
-                lines = f.readlines()
-            if len(lines):
-                contcar_loaded = True
-        self.contcar = VaspContcar(file_path = run_path / 'CONTCAR')
-
-        # continuously save CONTCAR as it updates every ionic step
-        while vasp.poll() is None:
-            time.sleep(1)
-            if self.contcar.check_updated():
-                time.sleep(0.5) # wait a moment to prevent read-write race
-                self.contcar.write_to_file(next_path(steps_dir / 'CONTCAR'))
-        vasp.wait()
-        vasp_out.close()
-
-        # update poscar file at the end
-        self.contcar.write_to_file(run_path / 'POSCAR')
-        self.poscar.load_from_file(run_path / 'POSCAR')
-    
-    def run_vasp_steps(self, run_path: Path):
-        """Wrapper to run all calculation steps sequentially."""
         num_steps = len(self.calculation_params.keys())
         for step_num, step_params in self.calculation_params.items():
             logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
-            self.single_run_vasp(run_path, step_params)
+            # update input files with calculation step parameters
+            for key in step_params.keys():
+                if key == 'name':
+                    pass
+                else:
+                    logger.debug(f'Updating input file {key}')
+                    self.update_input_file(key, step_params[key])
+
+            # initialize steps directory
+            steps_dir = run_path / 'steps'
+            steps_dir.mkdir(exist_ok=True)
+
+            # run vasp in the background
+            vasp_out = open(run_path / 'vasp.out', 'a')
+            vasp_cmd = ['srun', '--kill-on-bad-exit', '--cpu-bind=cores', 'vasp_std']
+            vasp = subprocess.Popen(vasp_cmd, cwd=run_path, stdout=vasp_out, stderr=subprocess.STDOUT)
+            logger.debug(f'VASP launched')
+
+            # load CONTCAR after the first scf cycle
+            contcar_loaded = False
+            contcar_path = run_path / 'CONTCAR'
+            while contcar_loaded is False:
+                time.sleep(1)
+                if not contcar_path.exists():
+                    continue
+                with open(contcar_path, 'r') as f:
+                    lines = f.readlines()
+                if len(lines):
+                    contcar_loaded = True
+            self.contcar = VaspContcar(file_path = run_path / 'CONTCAR')
+
+            # continuously save CONTCAR as it updates every ionic step
+            while vasp.poll() is None:
+                time.sleep(1)
+                if self.contcar.check_updated():
+                    time.sleep(0.5) # wait a moment to prevent read-write race
+                    self.contcar.write_to_file(next_path(steps_dir / 'CONTCAR'))
+            vasp.wait()
+            vasp_out.close()
+
+            # update poscar file at the end
+            self.contcar.write_to_file(run_path / 'POSCAR')
+            self.poscar.load_from_file(run_path / 'POSCAR')
 
     def update_input_file(self, file_name: str, new_lines: list[dict]):
         """Given an input file name, update the corresponding instance lines with a list of new lines and the desired operation (add, remove, overwrite line number, ...)."""
@@ -135,7 +131,7 @@ class Individual(Study):
         self.write_input_files(self.dir_path, overwrite_path=True)
     
     def run_vasp(self):
-        super().run_vasp_steps(self.dir_path)
+        super().run_vasp(self.dir_path)
  
 @register_study
 class EosFit(Study):
@@ -185,7 +181,7 @@ class EosFit(Study):
             logger.debug(f"Loaded input files for scale factor {sf}")
             # run vasp if it has not already been run
             if sf not in self.finished:
-                super().run_vasp_steps(subdir_path)
+                super().run_vasp(subdir_path)
             else:
                 logger.debug(f"Skipping calculations since {sf} has already run")
             # get volume and energy
@@ -211,7 +207,7 @@ class EosFit(Study):
 
         # calculate equilibrium energy
         if sf not in self.finished:
-            super().run_vasp_steps(subdir_path)
+            super().run_vasp(subdir_path)
         else:
             logger.debug(f"Skipping equilibrium calculations since it has already run")
 
@@ -402,10 +398,10 @@ class PointDefectFormation(Study):
         # relax perfect system (if necessary)
         if self.perfect_path is None:
             logger.debug(f"Relaxing perfect system...")
-            super().run_vasp_steps(self.perfect_subdir_path)
+            super().run_vasp(self.perfect_subdir_path)
         # relax defective system
         logger.debug(f"Relaxing defective system...")
-        super().run_vasp_steps(self.defective_subdir_path)
+        super().run_vasp(self.defective_subdir_path)
         # extract energies
         perfect_outcar = VaspOutcar(file_path = self.perfect_subdir_path / 'OUTCAR')
         perfect_energy = perfect_outcar.get_energy()
