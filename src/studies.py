@@ -390,6 +390,7 @@ class PointDefectFormation(Study):
         if self.params['defect'] == 'vac':
             defect_pos = np.array(strip_split(self.params['position'], item_type=float))
             self.poscar.remove_ion(defect_pos)
+            logger.debug(f"Inserted vacancy near {str(defect_pos)}")
         # adjust INCAR
         self.update_input_file('INCAR', [{'Add': f'ISYM = 0'}]) # disable symmetry
         # defective system
@@ -400,14 +401,18 @@ class PointDefectFormation(Study):
     def run_vasp(self):
         # relax perfect system (if necessary)
         if self.perfect_path is None:
+            logger.debug(f"Relaxing perfect system...")
             super().run_vasp_steps(self.perfect_subdir_path)
         # relax defective system
+        logger.debug(f"Relaxing defective system...")
         super().run_vasp_steps(self.defective_subdir_path)
         # extract energies
         perfect_outcar = VaspOutcar(file_path = self.perfect_subdir_path / 'OUTCAR')
         perfect_energy = perfect_outcar.get_energy()
+        logger.debug(f"Calculated perfect system energy: {perfect_energy} eV")
         defective_outcar = VaspOutcar(file_path = self.defective_subdir_path / 'OUTCAR')
         defective_energy = defective_outcar.get_energy()
+        logger.debug(f"Calculated defective system energy: {defective_energy} eV")
         # define chemical potential if it is not provided using E/N (bulk metals)
         try:
             chemical_pot = self.params['chemical_pot']
@@ -415,11 +420,13 @@ class PointDefectFormation(Study):
             perfect_poscar = VaspPoscar(file_path = self.perfect_subdir_path / 'POSCAR')
             num_species = len(perfect_poscar.get_species()[-1])
             chemical_pot = perfect_energy / num_species
+        logger.debug(f"Defined chemical potential: {chemical_pot} eV")
         # calculate formation energy
         if self.params['defect'] == 'vac':
             formation_energy = defective_energy - perfect_energy + chemical_pot
         else:
             formation_energy = defective_energy - perfect_energy - chemical_pot
+        logger.debug(f"Calculated defect formation energy: {formation_energy} eV")
         # write data to a file
         with open(self.dir_path / 'data.out', 'w') as d:
             d.write(f'Perfect system energy: {perfect_energy} eV\n')
