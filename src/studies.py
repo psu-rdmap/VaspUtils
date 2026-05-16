@@ -388,7 +388,7 @@ class PointDefectFormation(Study):
             logger.debug(f"Perfect system OUTCAR copied from {self.perfect_path / 'CONTCAR'}")
         # insert the defect
         if self.params['defect'] == 'vac':
-            defect_pos = np.array(strip_split(self.params['position'], item_type=float))
+            defect_pos = np.array(self.params['position'])
             self.poscar.remove_ion(defect_pos)
             logger.debug(f"Inserted vacancy near {str(defect_pos)}")
         # adjust INCAR
