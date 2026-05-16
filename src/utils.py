@@ -14,11 +14,14 @@ def strip_split(s: str, sep=None, item_type=None):
     else:
         raise ValueError(f'[{item_type}] Invalid item type. Choose None, int, or float')
 
-def tilps(list_str: list[str], sep: str = ' '):
+def tilps(list_str: list[str], sep: str = ' ', precision: int = 16):
     """Inverse of strip(), where a list of strings are glued back together into a single string."""
     s = ''
     for l in list_str:
-        s += f'{l:.16f}' + sep
+        if precision == 0:
+            s += f'{l}' + sep
+        else:
+            s += f'{l:.16f}' + sep
     return s
 
 def next_path(path: Path):

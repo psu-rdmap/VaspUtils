@@ -199,7 +199,7 @@ class VaspPoscar(VaspFile):
         species_name = species_list[rm_pos_idx]
         # decrement and overwrite species amount corresponding to determined name above
         amounts[species.index(species_name)] -= 1
-        self.overwrite_line(6, tilps(amounts, sep = '\t'))
+        self.overwrite_line(6, tilps(amounts, sep = '\t', precision = 0))
         # remove magnetic moment from magmom list and rebuild MAGMOM line
         magmom_list = incar.get_magmoms()
         if magmom_list:

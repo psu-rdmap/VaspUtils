@@ -50,7 +50,7 @@ class Study:
         self.kpoints = VaspKPoints(file_path=dir_path / 'KPOINTS')
         self.potcar = VaspPotcar(file_path=dir_path / 'POTCAR')
     
-    def run_vasp(self, run_path: Path, step_params: dict):
+    def single_run_vasp(self, run_path: Path, step_params: dict):
         """Run VASP in the background and perform any necessary supporting operations."""
         # update input files with calculation step parameters
         for key in step_params.keys():
@@ -101,7 +101,7 @@ class Study:
         num_steps = len(self.calculation_params.keys())
         for step_num, step_params in self.calculation_params.items():
             logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
-            self.run_vasp(run_path, step_params)
+            self.single_run_vasp(run_path, step_params)
 
     def update_input_file(self, file_name: str, new_lines: list[dict]):
         """Given an input file name, update the corresponding instance lines with a list of new lines and the desired operation (add, remove, overwrite line number, ...)."""
@@ -389,7 +389,7 @@ class PointDefectFormation(Study):
         # insert the defect
         if self.params['defect'] == 'vac':
             defect_pos = np.array(self.params['position'])
-            self.poscar.remove_ion(defect_pos)
+            self.poscar.remove_ion(defect_pos, self.incar)
             logger.debug(f"Inserted vacancy near {str(defect_pos)}")
         # adjust INCAR
         self.update_input_file('INCAR', [{'Add': f'ISYM = 0'}]) # disable symmetry
