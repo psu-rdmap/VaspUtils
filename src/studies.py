@@ -402,6 +402,8 @@ class PointDefectFormation(Study):
         if self.perfect_path is None:
             logger.debug(f"Relaxing perfect system...")
             super().run_vasp(self.perfect_subdir_path)
+        else:
+            logger.debug(f"Perfect system already relaxed. Skipping it.")
         # relax defective system
         logger.debug(f"Relaxing defective system...")
         super().run_vasp(self.defective_subdir_path)
