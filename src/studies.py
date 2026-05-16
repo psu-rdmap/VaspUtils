@@ -376,7 +376,7 @@ class PointDefectFormation(Study):
 
     def build_directory(self):
         """Subdirectories for the perfect and defective system."""
-        self.dir_path = next_path(self.parent_dir_path / (self.params['defect'] + '_' + self.params['energy']))
+        self.dir_path = next_path(self.parent_dir_path / (self.params['defect'] + '_formation'))
         # perfect system
         self.perfect_subdir_path = self.dir_path / 'perfect'
         self.perfect_subdir_path.mkdir(parents=True)
