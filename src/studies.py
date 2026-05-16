@@ -1,14 +1,17 @@
 from vasp_file import VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar
 from utils import next_path, wipe_directory, strip_split
 from pathlib import Path
-import subprocess, time, logging, math
+import subprocess, time, logging
 from ase.eos import EquationOfState
 from ase.units import kJ
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
+from copy import deepcopy
 
 logger = logging.getLogger('VaspUtils')
-logging.getLogger("matplotlib").setLevel(logging.WARNING)
+logging.getLogger("matplotlib").setLevel(logging.FATAL)
+logging.getLogger("ase").setLevel(logging.FATAL)
 
 class Study:
     """Baseclass for a DFT study which consists of at least one set of VASP calculations."""
@@ -92,6 +95,13 @@ class Study:
         # update poscar file at the end
         self.contcar.write_to_file(run_path / 'POSCAR')
         self.poscar.load_from_file(run_path / 'POSCAR')
+    
+    def run_vasp_steps(self, run_path: Path):
+        """Wrapper to run all calculation steps sequentially."""
+        num_steps = len(self.calculation_params.keys())
+        for step_num, step_params in self.calculation_params.items():
+            logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
+            self.run_vasp(run_path, step_params)
 
     def update_input_file(self, file_name: str, new_lines: list[dict]):
         """Given an input file name, update the corresponding instance lines with a list of new lines and the desired operation (add, remove, overwrite line number, ...)."""
@@ -125,12 +135,8 @@ class Individual(Study):
         self.write_input_files(self.dir_path, overwrite_path=True)
     
     def run_vasp(self):
-        # individual calculation steps
-        num_steps = len(self.calculation_params.keys())
-        for step_num, step_params in self.calculation_params.items():
-            logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
-            super().run_vasp(self.dir_path, step_params)
-
+        super().run_vasp_steps(self.dir_path)
+ 
 @register_study
 class EosFit(Study):
     """Calculate energy for scaled up/down supercells and fit a V(E) equation of state."""
@@ -179,10 +185,7 @@ class EosFit(Study):
             logger.debug(f"Loaded input files for scale factor {sf}")
             # run vasp if it has not already been run
             if sf not in self.finished:
-                num_steps = len(self.calculation_params.keys())
-                for step_num, step_params in self.calculation_params.items():
-                    logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
-                    super().run_vasp(subdir_path, step_params)
+                super().run_vasp_steps(subdir_path)
             else:
                 logger.debug(f"Skipping calculations since {sf} has already run")
             # get volume and energy
@@ -208,10 +211,7 @@ class EosFit(Study):
 
         # calculate equilibrium energy
         if sf not in self.finished:
-            num_steps = len(self.calculation_params.keys())
-            for step_num, step_params in self.calculation_params.items():
-                logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
-                super().run_vasp(subdir_path, step_params)
+            super().run_vasp_steps(subdir_path)
         else:
             logger.debug(f"Skipping equilibrium calculations since it has already run")
 
@@ -258,7 +258,7 @@ class Benchmark(Study):
         max_time = self.params['max_time']
         max_time_str = f"{int(max_time/3600):02d}:{int((max_time/60)%60):02d}:{int(max_time%60):02d}"
         self.job = [
-            "#!/bin/bash/\n",
+            "#!/bin/bash\n",
             f"#SBATCH --account={self.params['account']}\n",
             f"#SBATCH --nodes=1\n",
             f"#SBATCH --ntasks={self.params['cores']}\n",
@@ -266,7 +266,7 @@ class Benchmark(Study):
             f"#SBATCH --time={max_time_str}\n",
             f"SECONDS=0\n",
             f"cd PATH\n",
-            f"srun --kill-on-bad-exit --cpu-bind=cores vasp_std > vasp.out\n",
+            f"srun --export=ALL --kill-on-bad-exit --cpu-bind=cores vasp_std > vasp.out\n",
             f"ELAPSED=$SECONDS\n",
             f"echo $ELAPSED > time.out\n",
         ]
@@ -285,7 +285,7 @@ class Benchmark(Study):
                 self.update_input_file('INCAR', [{'Add': f'KPAR = {k}'}, {'Add': f'NCORE = {n}'}])
                 self.write_input_files(subdir_path)
                 # update path in job file and write it
-                self.job[7] = f"cd {subdir_path}\n"
+                self.job[7] = f"cd '{subdir_path}'\n"
                 with open(subdir_path / 'run', 'w') as r:
                     r.writelines(self.job)
                 n_subdir_paths[n] = subdir_path
@@ -300,7 +300,7 @@ class Benchmark(Study):
             n_times: dict[int, int] = {}
             for n in n_list:
                 run_path: Path = self.subdir_paths[k][n] / 'run'
-                vasp = subprocess.Popen(f"sbatch {run_path}", cwd=run_path.parent, stderr=subprocess.STDOUT)
+                vasp = subprocess.Popen(f"sbatch run", cwd=run_path.parent, stderr=subprocess.STDOUT)
                 logger.debug(f"Submitted VASP job in {run_path}")
                 num_unfinished_jobs += 1
                 n_times[n] = 0
@@ -358,3 +358,71 @@ class Benchmark(Study):
         plt.ylabel('Best Calculation Time (rel.)')
         plt.savefig(self.parent_dir_path / 'best_times.png')
         logger.debug(f"Plotted best NCORE and KPAR values and saved figure at {self.parent_dir_path / 'best_times.png'}")
+
+@register_study
+class PointDefectFormation(Study):
+    """Calculate formation for a vacancy or self-interstitial."""
+    def __init__(self, input_yml):
+        # if the perfect keyword was included, load this CONTCAR
+        try:
+            self.perfect_path = input_yml['study']['parameters']['perfect']
+            perfect_contcar = VaspContcar(file_path = self.perfect_path / 'CONTCAR')
+            input_yml['study']['POSCAR'] = deepcopy(perfect_contcar.lines())
+            logger.debug(f"Path to relaxed perfect system provided. POSCAR loaded from {self.perfect_path / 'CONTCAR'}")
+        except:
+            self.perfect_path = None
+            logger.debug(f"Path to relaxed perfect system could not be found or was not provided")
+        super().__init__(input_yml)
+
+    def build_directory(self):
+        """Subdirectories for the perfect and defective system."""
+        self.dir_path = next_path(self.parent_dir_path / (self.params['defect'] + '_' + self.params['energy']))
+        # perfect system
+        self.perfect_subdir_path = self.dir_path / 'perfect'
+        self.perfect_subdir_path.mkdir(parents=True)
+        self.write_input_files(self.perfect_subdir_path)
+        # copy in OUTCAR if perfect system has already been relaxed
+        if self.perfect_path:
+            perfect_outcar = VaspOutcar(file_path = self.perfect_path / 'OUTCAR')
+            perfect_outcar.write_to_file(self.perfect_subdir_path / 'OUTCAR')
+            logger.debug(f"Perfect system OUTCAR copied from {self.perfect_path / 'CONTCAR'}")
+        # insert the defect
+        if self.params['defect'] == 'vac':
+            defect_pos = np.array(strip_split(self.params['position'], item_type=float))
+            self.poscar.remove_ion(defect_pos)
+        # adjust INCAR
+        self.update_input_file('INCAR', [{'Add': f'ISYM = 0'}]) # disable symmetry
+        # defective system
+        self.defective_subdir_path = self.dir_path / 'defective'
+        self.defective_subdir_path.mkdir()
+        self.write_input_files(self.defective_subdir_path)
+    
+    def run_vasp(self):
+        # relax perfect system (if necessary)
+        if self.perfect_path is None:
+            super().run_vasp_steps(self.perfect_subdir_path)
+        # relax defective system
+        super().run_vasp_steps(self.defective_subdir_path)
+        # extract energies
+        perfect_outcar = VaspOutcar(file_path = self.perfect_subdir_path / 'OUTCAR')
+        perfect_energy = perfect_outcar.get_energy()
+        defective_outcar = VaspOutcar(file_path = self.defective_subdir_path / 'OUTCAR')
+        defective_energy = defective_outcar.get_energy()
+        # define chemical potential if it is not provided using E/N (bulk metals)
+        try:
+            chemical_pot = self.params['chemical_pot']
+        except:
+            perfect_poscar = VaspPoscar(file_path = self.perfect_subdir_path / 'POSCAR')
+            num_species = len(perfect_poscar.get_species()[-1])
+            chemical_pot = perfect_energy / num_species
+        # calculate formation energy
+        if self.params['defect'] == 'vac':
+            formation_energy = defective_energy - perfect_energy + chemical_pot
+        else:
+            formation_energy = defective_energy - perfect_energy - chemical_pot
+        # write data to a file
+        with open(self.dir_path / 'data.out', 'w') as d:
+            d.write(f'Perfect system energy: {perfect_energy} eV\n')
+            d.write(f'Defective system energy: {defective_energy} eV\n')
+            d.write(f'Chemical potential: {chemical_pot} eV\n')
+            d.write(f'Defect formation energy: {formation_energy} eV\n')

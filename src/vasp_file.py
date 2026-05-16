@@ -1,5 +1,5 @@
 from pathlib import Path
-from utils import strip_split
+from utils import strip_split, tilps
 import numpy as np
 import pandas as pd
 import logging
@@ -63,6 +63,12 @@ class VaspFile:
         self.lines[line_number] = new_line
         if self.path:
             self.write_to_file(self.path)
+    
+    def remove_line(self, line_number: int):
+        """Delete a line at a given line number and overwrite the existing file if it exists."""
+        self.lines.pop(line_number)
+        if self.path:
+            self.write_to_file(self.path)
 
 class VaspIncar(VaspFile):
     def check_by_tag(self, tag: str):
@@ -82,6 +88,29 @@ class VaspIncar(VaspFile):
         else:
             self.overwrite_line(current_line[0], new_line)
 
+    def remove_line(self, tag: str):
+        """Remove line by INCAR tag instead of line number and overwrite the existing file if it exists."""
+        idx_and_line = self.check_by_tag(tag)
+        if idx_and_line is not None:
+            super().remove_line(idx_and_line[0])
+    
+    def get_magmoms(self):
+        """If MAGMOM is present, return a list of magnetic moments in the same way as VaspPoscar's get_species() method."""
+        magmom_line = self.check_by_tag('MAGMOM')
+        if magmom_line is None:
+            return None
+        _, magmom_line = magmom_line
+        magmoms = strip_split(strip_split(magmom_line, '=')[1])
+        magmoms_list = []
+        for mag in magmoms:
+            mag = mag.split('*')
+            # two items corresponding to amt*val
+            if len(mag) == 2:
+                magmoms_list += [mag[1]]*int(mag[0])
+            elif len(mag) == 1:
+                magmoms_list += [mag[0]]
+        return magmoms_list
+
 class VaspPoscar(VaspFile):
     def __init__(self, file_path=None, contents_str=None):
         super().__init__(file_path=file_path, contents_str=contents_str)
@@ -92,9 +121,9 @@ class VaspPoscar(VaspFile):
         self.lattice_type, self.supercell_shape = None, None
         comment_line = strip_split(self.lines[0])
         for val in comment_line:
-            if val in ['fcc_prim', 'bcc_conv', 'hcp_prim', 'fcc_conv', 'fcc_super', 'bcc_super', 'hcp_super']:
+            if val in ['fcc_prim', 'bcc_conv', 'fcc_conv', 'fcc_super', 'bcc_super', 'tetr_super']:
                 self.lattice_type = val
-            elif val in ['1x1x1', '2x2x2', '3x3x3', '4x4x4', '3x3x2']:
+            elif val in ['1x1x1', '2x2x2', '3x3x3', '4x4x4', '3x3x2', '2x2x3']:
                 self.supercell_shape = val.split('x')
                 self.supercell_shape = [float(v) for v in self.supercell_shape] 
             else:
@@ -123,22 +152,28 @@ class VaspPoscar(VaspFile):
             self.lattice_parameters['a'] = self.volume**(1/3)
         elif self.lattice_type in ['fcc_super', 'bcc_super']:
             ax, bx, cx = self.supercell_shape
-            if [ax]*3 == [ax, bx, cx]:
-                self.lattice_parameters['a'] = (self.scale_factor*self.lattice_vectors)[0][0] / ax
-            else:
-                raise ValueError(f'[{ax}x{bx}x{cx}] Supercell shape unsupported for fcc, bcc supercells')
-        else:
-            raise ValueError(f'[{self.lattice_type}] Lattice type is unsupported')
+            self.lattice_parameters['a'] = (self.scale_factor*self.lattice_vectors)[0][0] / ax
+        elif self.lattice_type in ['tetr_super']:
+            ax, bx, cx = self.supercell_shape
+            self.lattice_parameters['a'] = (self.scale_factor*self.lattice_vectors)[0][0] / ax
+            self.lattice_parameters['c'] = (self.scale_factor*self.lattice_vectors)[2][2] / cx
 
         logger.debug(f'{self.name}: updated supercell properties')
     
     def get_species(self):
-        species = strip_split(self.lines[5])
-        amounts = strip_split(self.lines[6], item_type=int)
-        species_list = []
+        species: list[str] = strip_split(self.lines[5])
+        amounts: list[int] = strip_split(self.lines[6], item_type=int)
+        species_list: list[str] = []
         for i, s in enumerate(species):
             species_list += [s]*amounts[i]
         return species, amounts, species_list
+    
+    def get_ion_positions(self):
+        _, amounts, _ = self.get_species()
+        ion_positions = []
+        for l in self.lines[8:8+sum(amounts)]:
+            ion_positions.append(np.array(strip_split(l, item_type=float)))
+        return ion_positions
     
     def load_from_string(self, contents_str):
         super().load_from_string(contents_str)
@@ -148,13 +183,33 @@ class VaspPoscar(VaspFile):
         super().load_from_file(file_path)
         self.update_supercell_properties()
 
-    def append_line(self, new_line):
-        super().append_line(new_line)
-        self.update_supercell_properties()
-
     def overwrite_line(self, line_number, new_line):
         super().overwrite_line(line_number, new_line)
         self.update_supercell_properties()
+    
+    def remove_ion(self, defect_pos: np.ndarray[float], incar: VaspIncar):
+        """Remove ion closest to the provided position and adjust species line and INCAR magmom line accordingly."""
+        distances = []
+        for pos in self.get_ion_positions():
+            distances.append(np.linalg.norm(pos - defect_pos))
+        rm_pos_idx = distances.index(min(distances))
+        self.remove_line(rm_pos_idx+8)
+        # get species name corresponding to line number (e.g., 'Ni')
+        species, amounts, species_list = self.get_species()
+        species_name = species_list[rm_pos_idx]
+        # decrement and overwrite species amount corresponding to determined name above
+        amounts[species.index(species_name)] -= 1
+        self.overwrite_line(6, tilps(amounts, sep = '\t'))
+        # remove magnetic moment from magmom list and rebuild MAGMOM line
+        magmom_list = incar.get_magmoms()
+        if magmom_list:
+            magmom_list.pop(rm_pos_idx)
+            unique_magmoms = dict.fromkeys(magmom_list)
+            new_magmom_str = 'MAGMOM ='
+            for mag in unique_magmoms.keys():
+                num_mag = len([m for m in magmom_list if mag == m])
+                new_magmom_str += f' {num_mag}*{mag}'
+            incar.append_line(new_magmom_str)
 
 class VaspKPoints(VaspFile):
     pass
@@ -223,14 +278,8 @@ class VaspContcar(VaspPoscar):
             return False
 
 """
-class VaspIncar(VaspText):            
-    def remove_line(self, vasp_kw: str):
-        current_line = self.check_by_keyword(vasp_kw)
-        if current_line is not None:
-            super().remove_line(current_line[0])
-
 class VaspPoscar(VaspText):
-    def load_ion_positions(self, as_df=False):
+    def get_ion_positions(self, as_df=False):
         _, amounts, _ = self.load_species()
         if as_df:
             ion_positions = pd.DataFrame(columns=['x', 'y', 'z'])
