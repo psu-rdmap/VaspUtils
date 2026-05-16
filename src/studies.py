@@ -361,9 +361,12 @@ class PointDefectFormation(Study):
     def __init__(self, input_yml):
         # if the perfect keyword was included, load this CONTCAR
         try:
-            self.perfect_path = input_yml['study']['parameters']['perfect']
+            self.perfect_path = Path(input_yml['study']['parameters']['perfect'])
             perfect_contcar = VaspContcar(file_path = self.perfect_path / 'CONTCAR')
-            input_yml['study']['POSCAR'] = deepcopy(perfect_contcar.lines())
+            perfect_poscar_lines = ''
+            for line in perfect_contcar.lines:
+                perfect_poscar_lines += line + '\n'
+            input_yml['study']['POSCAR'] = deepcopy(perfect_poscar_lines)
             logger.debug(f"Path to relaxed perfect system provided. POSCAR loaded from {self.perfect_path / 'CONTCAR'}")
         except:
             self.perfect_path = None

@@ -22,7 +22,7 @@ def tilps(list_str: list[str], sep: str = ' ', precision: int = 16):
             s += f'{l}' + sep
         else:
             s += f'{l:.16f}' + sep
-    return s
+    return s.strip()
 
 def next_path(path: Path):
     """Return a path name with the next available index appended to it (e.g., 'some_path_050')."""
