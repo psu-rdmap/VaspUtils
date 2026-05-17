@@ -1,7 +1,7 @@
 from vasp_file import VaspFile, VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar
 from utils import next_path, wipe_directory, strip_split
 from pathlib import Path
-import subprocess, time, logging
+import subprocess, time, logging, yaml
 from ase.eos import EquationOfState
 from ase.units import kJ
 import matplotlib.pyplot as plt
@@ -14,57 +14,61 @@ logging.getLogger("matplotlib").setLevel(logging.FATAL)
 logging.getLogger("ase").setLevel(logging.FATAL)
 
 class Study:
-    """Baseclass for a DFT study which consists of at least one set of VASP calculations."""
+    """Baseclass for a DFT study which consists of at least one calculation."""
     def __init__(self, input_yml: dict[str, dict]):
-        self.name_str = input_yml['study']['name']
-        self.parent_dir_path = Path(input_yml['study']['dir'])
-        self.dir_path = None
-        self.params = input_yml['study']['parameters']
-        self.calculation_params = input_yml['calculation']
+        self.input_yml = input_yml
+        self.params = input_yml['study']
+        self.calc_params = input_yml['calculations']
+        self.steps_params = input_yml['steps']
+        self.parent_dir = Path(input_yml['study']['dir'])
+        self.dir = None
+        
+        self.name = self.params['name']
+        logger.debug(f'Starting study: {self.name}')
 
-        # get POTCAR names to define the file
-        self.potcar_names = [n.strip() for n in input_yml['study']['POTCAR'].split('\n')]
-
-        # load VASP input files from user input
-        self.incar = VaspIncar(contents_str=input_yml['study']['INCAR'])
-        self.poscar = VaspPoscar(contents_str=input_yml['study']['POSCAR'])
-        self.kpoints = VaspKPoints(contents_str=input_yml['study']['KPOINTS'])
-        self.potcar = VaspPotcar(self.potcar_names, self.poscar)        
-        logger.debug('Initialized VASP input file objects from user input')
+        # initialize VASP input files
+        self.potcar_names = [n.strip() for n in self.calc_params['POTCAR'].split('\n')]
+        self.load_input_files()
 
         # build directory and run vasp (implemented by subclasses)
-        self.subdir_paths = {}
+
+    def init_input_files(self):
+        """Initialize all VASP input files specific to the given study."""
+        self.incar = VaspIncar(contents_str=self.calc_params['INCAR'])
+        self.poscar = VaspPoscar(contents_str=self.calc_params['POSCAR'])
+        self.kpoints = VaspKPoints(contents_str=self.calc_params['KPOINTS'])
+        self.potcar = VaspPotcar(self.potcar_names, self.poscar)       
+        logger.debug('Initialized VASP input file objects from user input')
 
     def build_directory(self):
         """Build directory specific to each Study subclass."""
         pass
 
-    def write_input_files(self, dir_path: Path, overwrite_path=False):
+    def write_input_files(self, dir: Path, overwrite_path=False):
         """Write current lines of input files to a files in a given directory."""
-        self.incar.write_to_file(dir_path / 'INCAR', overwrite_path=overwrite_path)
-        self.poscar.write_to_file(dir_path / 'POSCAR', overwrite_path=overwrite_path)
-        self.kpoints.write_to_file(dir_path / 'KPOINTS', overwrite_path=overwrite_path)
-        self.potcar.write_to_file(dir_path / 'POTCAR', overwrite_path=overwrite_path)
+        self.incar.write_to_file(dir / 'INCAR', overwrite_path=overwrite_path)
+        self.poscar.write_to_file(dir / 'POSCAR', overwrite_path=overwrite_path)
+        self.kpoints.write_to_file(dir / 'KPOINTS', overwrite_path=overwrite_path)
+        self.potcar.write_to_file(dir / 'POTCAR', overwrite_path=overwrite_path)
 
-    def load_input_files(self, dir_path: Path):
+    def load_input_files(self, dir: Path):
         """Load lines of input files in a given directory."""
-        self.incar = VaspIncar(file_path = dir_path / 'INCAR')
-        self.poscar = VaspPoscar(file_path=dir_path / 'POSCAR')
-        self.kpoints = VaspKPoints(file_path=dir_path / 'KPOINTS')
+        self.incar = VaspIncar(file_path=dir / 'INCAR')
+        self.poscar = VaspPoscar(file_path=dir / 'POSCAR')
+        self.kpoints = VaspKPoints(file_path=dir / 'KPOINTS')
         self.potcar = VaspPotcar(self.potcar_names, self.poscar)
     
-    def run_vasp(self, run_path: Path):
+    def run_vasp(self, steps_params: dict, run_path: Path):
         """Run VASP in the background and perform any necessary supporting operations."""
-        num_steps = len(self.calculation_params.keys())
-        for step_num, step_params in self.calculation_params.items():
-            logger.debug(f"({step_num}/{num_steps}) Running calculation: {step_params['name']}")
-            # update input files with calculation step parameters
-            for key in step_params.keys():
-                if key == 'name':
-                    pass
-                else:
-                    logger.debug(f'Updating input file {key}')
-                    self.update_input_file(key, step_params[key])
+        num_steps = len(steps_params.keys())
+        for idx, params in steps_params.items():
+            logger.debug(f"({idx}/{num_steps}) Running calculation: {params['name']}")
+            
+            # update tags for step
+            try: 
+                self.incar.update_tags(params['tags'])
+            except:
+                pass
 
             # initialize steps directory
             steps_dir = run_path / 'steps'
@@ -102,23 +106,9 @@ class Study:
             self.contcar.write_to_file(run_path / 'POSCAR')
             self.poscar.load_from_file(run_path / 'POSCAR')
 
-    def update_input_file(self, file_name: str, new_lines: list[dict]):
-        """Given an input file name, update the corresponding instance lines with a list of new lines and the desired operation (add, remove, overwrite line number, ...)."""
-        for line in new_lines:
-            action = next(iter([k for k in line.keys()]))
-            logger.debug(f'Action: {action}')
-            logger.debug(f'Line: {line[action]}')
-
-            # append the current line to the end
-            if action == 'Add':
-                if file_name == 'INCAR':
-                    self.incar.append_line(str(line[action]))
-
-            # overwrite the line with a given line number (e.g., 'L43' is Line 43 and the index would be 42)
-            elif action[0] == 'L':
-                if file_name == 'POSCAR':
-                    line_number = int(action[1:]) - 1
-                    self.poscar.overwrite_line(line_number, str(line[action]))
+            # write out input YAML for reference
+            with open('input.yml', 'r') as f:
+                yaml.dump(self.input_yml, f)
 
 study_registry: dict[str, Study] = {}
 def register_study(cls):
@@ -126,116 +116,119 @@ def register_study(cls):
     study_registry[cls.__name__] = cls
     return cls
 
+
 @register_study
 class Individual(Study):
     """Simplest study consisting of one set of VASP calculations in a single directory."""
     def build_directory(self):
         """Single directory with no subdirectories."""
-        self.dir_path = next_path(self.parent_dir_path / 'individual')
-        self.dir_path.mkdir()
-        self.write_input_files(self.dir_path, overwrite_path=True)
+        self.dir = next_path(self.parent_dir / 'individual')
+        self.dir.mkdir()
+        self.write_input_files(self.dir, overwrite_path=True)
     
     def run_vasp(self):
-        super().run_vasp(self.dir_path)
+        super().run_vasp(self.steps_params, self.dir)
  
 @register_study
 class EosFit(Study):
-    """Calculate energy for scaled up/down supercells and fit a V(E) equation of state."""
+    """Calculate energy for scaled up/down supercells and fit an E(V) equation of state."""
     def __init__(self, input_yml):
-        super().__init__(input_yml)
-        # special keywords
+        # load restart file if it exists
         try:
-            self.finished = self.params['finished']
-            self.resume_dir = self.params['resume']
+            with open(Path(input_yml['study']['dir']) / 'eosfit.restart', 'r') as f:
+                self.finished_sfs = [val.strip() for val in f.readlines()]
+            if len(self.finished_sfs):
+                self.restart = True
+                logger.debug(f'eosfit.restart found, restarting from scaling factor {self.finished_sfs[-1]}')
         except:
-            self.finished = []
-            self.resume_dir = None
+            self.restart = False
+        
+        # finish initializing
+        super().__init__(input_yml)
 
     def build_directory(self):
-        """Subdirectories for each scale factor."""
-        if self.resume_dir:
-            self.dir_path = self.parent_dir_path / self.resume_dir
-            logger.debug(f'Resuming from {self.dir_path}')
+        if self.restart:
+            self.dir = self.params['dir']
         else:
-            self.dir_path = next_path(self.parent_dir_path / 'eos')
-        self.dir_path.mkdir(exist_ok=True)
-
+            self.dir = next_path(self.parent_dir / 'eos')
+            self.dir.mkdir()
+            logger.debug(f'Generated study directory: {self.dir}')
+        
         for sf in self.params['scaling']:
             # create subdirectory
-            subdir_path = self.dir_path / str(sf)
-            subdir_path.mkdir(exist_ok=True)
-            # cleanup directory and input files if sf has not already been run
-            if sf not in self.finished:
-                wipe_directory(subdir_path)
-                self.write_input_files(subdir_path)
-            self.subdir_paths[sf] = subdir_path
+            subdir = self.dir / str(sf)
+            subdir.mkdir(exist_ok=True)
+            # cleanup directory and input files and update POSCAR if sf has not already been run
+            if f'{sf:2f}' not in self.finished_sfs:
+                wipe_directory(subdir)
+                self.write_input_files(subdir)
+                self.poscar.update_scaling_factor(sf)
 
         # equilibrium subdirectory
-        subdir_path = self.dir_path / 'eq'
-        subdir_path.mkdir(exist_ok=True)
-        if 'eq' not in self.finished:
-            wipe_directory(subdir_path)
-            self.write_input_files(subdir_path)
+        subdir = self.dir / 'eq'
+        subdir.mkdir(exist_ok=True)
+        if 'eq' not in self.finished_sfs:
+            wipe_directory(subdir)
+            self.write_input_files(subdir)
+            self.poscar.update_scaling_factor(1.0)
 
     def run_vasp(self):
         # calculate energies for fitting
         energies, volumes = [], []
         for sf in self.params['scaling']:
-            # load input files in subdirectory and update POSCAR with current scaling factor
-            subdir_path = self.dir_path / str(sf)
-            self.load_input_files(subdir_path)
-            self.update_input_file('POSCAR', [{'L2': sf}])
+            # load input files in subdirectory
+            subdir = self.dir / str(sf)
+            self.load_input_files(subdir)
             logger.debug(f"Loaded input files for scale factor {sf}")
             # run vasp if it has not already been run
-            if sf not in self.finished:
-                super().run_vasp(subdir_path)
+            if f'{sf:2f}' not in self.finished_sfs:
+                super().run_vasp(subdir)
+                with open(self.dir / 'eosfit.restart', 'a') as f:
+                    f.write(f'{sf:.2f}\n')
             else:
                 logger.debug(f"Skipping calculations since {sf} has already run")
             # get volume and energy
             volumes.append(self.poscar.volume)
             logger.debug(f"Calculated volume: {self.poscar.volume}")
-            self.outcar = VaspOutcar(file_path = subdir_path / 'OUTCAR')
+            self.outcar = VaspOutcar(file_path = subdir / 'OUTCAR')
             energies.append(self.outcar.get_energy())
             logger.debug(f"Calculated energy: {self.outcar.get_energy()}")
 
         # fit EoS
         eos = EquationOfState(volumes, energies, eos='birchmurnaghan')
         eq_vol, eq_energy, bulk_mod = eos.fit()
-        eos.plot(self.dir_path / 'eos.png')
+        eos.plot(self.dir / 'eos.png')
         logger.debug(f"Birch-Murnaghan EOS fitted")
         
         # set up equilibrium volume supercell directory
-        subdir_path = self.dir_path / 'eq'
-        self.load_input_files(subdir_path)
+        subdir = self.dir / 'eq'
+        self.load_input_files(subdir)
         eq_vol_factor = eq_vol / self.poscar.volume
-        eq_sf = self.poscar.scale_factor*(eq_vol_factor)**(1/3)
-        self.update_input_file('POSCAR', [{'L2': eq_sf}])
+        eq_sf = eq_vol_factor**(1/3)
+        self.poscar.update_scaling_factor(eq_sf)
         logger.debug(f"Loaded input files for equilibrium scale factor {eq_sf}")
 
         # calculate equilibrium energy
-        if sf not in self.finished:
-            super().run_vasp(subdir_path)
+        if 'eq' not in self.finished_sfs:
+            super().run_vasp(subdir)
+            with open(self.dir / 'eosfit.restart', 'a') as f:
+                f.write(f'eq\n')
         else:
-            logger.debug(f"Skipping equilibrium calculations since it has already run")
-
+            logger.debug(f"Skipping equilibrium calculation since it has already run")
+        
         # print out data
-        self.outcar.load_from_file(subdir_path / 'OUTCAR')
-        with open(self.dir_path / 'data.out', 'w') as d:
+        self.outcar.load_from_file(subdir / 'OUTCAR')
+        with open(self.dir / 'data.out', 'w') as d:
             d.write(f'Volumes: {volumes}\n')
             d.write(f'Energies: {[float(e) for e in energies]}\n')
             d.write(f'Equilibrium volume = {self.poscar.volume} A3\n')
             d.write(f'Equilibrium energy = {self.outcar.get_energy()} eV\n')
             d.write(f"Equilibrium lattice constant = {self.poscar.lattice_parameters['a']}")
             d.write(f'Bulk modulus: {bulk_mod / kJ * 1.0e24}')
-            d.write(f'Average magnetic moments:')
-            magmoms: dict[str, float] = self.outcar.get_magmom()
-            if magmoms:
-                for species, magmom in magmoms.items():
-                    d.write(f'\t{species} = {magmom}')
-        logger.debug(f"Printed fit data to {self.dir_path / 'data.out'}")
+        logger.debug(f"Printed fit data to {self.dir / 'data.out'}")
 
 @register_study
-class Benchmark(Study):
+class Benchmark(Study): 
     """Benchmark KPAR and NCORE for a given test system."""
     def __init__(self, input_yml):
         super().__init__(input_yml)
@@ -365,78 +358,93 @@ class Benchmark(Study):
 @register_study
 class PointDefectFormation(Study):
     """Calculate formation for a vacancy or self-interstitial."""
-    def __init__(self, input_yml):
-        # if the perfect keyword was included, load this CONTCAR
+    def init_input_files(self):
+        self.perfect_incar = VaspIncar(contents_str=self.calc_params['perfect']['INCAR'])
+        self.perfect_kpoints = VaspKPoints(contents_str=self.calc_params['perfect']['KPOINTS'])
         try:
-            self.perfect_path = Path(input_yml['study']['parameters']['perfect'])
-            perfect_contcar = VaspContcar(file_path = self.perfect_path / 'CONTCAR')
-            perfect_poscar_lines = ''
-            for line in perfect_contcar.lines:
-                perfect_poscar_lines += line + '\n'
-            input_yml['study']['POSCAR'] = deepcopy(perfect_poscar_lines)
-            logger.debug(f"Path to relaxed perfect system provided. POSCAR loaded from {self.perfect_path / 'CONTCAR'}")
+            self.perfect_path = Path(self.params['perfect'])
+            self.perfect_poscar = VaspPoscar(file_path = Path(self.params['perfect']) / 'CONTCAR')
         except:
             self.perfect_path = None
+            self.perfect_poscar = VaspPoscar(contents_str=self.calc_params['POSCAR'])
             logger.debug(f"Path to relaxed perfect system could not be found or was not provided")
-        super().__init__(input_yml)
+
+        self.defective_incar = VaspIncar(contents_str=self.calc_params['defective']['INCAR'])
+        self.defective_kpoints = VaspKPoints(contents_str=self.calc_params['defective']['KPOINTS'])
+        self.defective_poscar = VaspPoscar(contents_str=self.calc_params['POSCAR'])
+        
+        # only need one version to manage both systems
+        self.potcar = VaspPotcar(self.potcar_names, self.perfect_files['POSCAR'])
+        logger.debug('Initialized VASP input file objects from user input')
+
+    def write_input_files(self, dir, system: str = None, overwrite_path=False):
+        if system == 'perfect':
+            self.perfect_incar.write_to_file(dir / 'INCAR', overwrite_path=overwrite_path)
+            self.perfect_kpoints.write_to_file(dir / 'KPOINTS', overwrite_path=overwrite_path)
+            self.perfect_poscar.write_to_file(dir / 'POSCAR', overwrite_path=overwrite_path)
+        elif system == 'defective':
+            self.defective_incar.write_to_file(dir / 'INCAR', overwrite_path=overwrite_path)
+            self.defective_kpoints.write_to_file(dir / 'KPOINTS', overwrite_path=overwrite_path)
+            self.defective_poscar.write_to_file(dir / 'POSCAR', overwrite_path=overwrite_path)
+
+        self.potcar.write_to_file(dir / 'POTCAR', overwrite_path=overwrite_path)
 
     def build_directory(self):
         """Subdirectories for the perfect and defective system."""
-        self.dir_path = next_path(self.parent_dir_path / (self.params['defect'] + '_formation'))
+        self.dir = next_path(self.parent_dir / (self.params['defect'] + '_formation'))
         # perfect system
-        self.perfect_subdir_path = self.dir_path / 'perfect'
-        self.perfect_subdir_path.mkdir(parents=True)
-        self.write_input_files(self.perfect_subdir_path)
+        self.perfect_subdir = self.dir / 'perfect'
+        self.perfect_subdir.mkdir(parents=True)
+        self.write_input_files(self.perfect_subdir, system='perfect', overwrite_path=True)
         # copy in OUTCAR if perfect system has already been relaxed
-        if self.perfect_path:
+        if self.perfect_path:          
             perfect_outcar = VaspOutcar(file_path = self.perfect_path / 'OUTCAR')
-            perfect_outcar.write_to_file(self.perfect_subdir_path / 'OUTCAR')
-            logger.debug(f"Perfect system OUTCAR copied from {self.perfect_path / 'CONTCAR'}")
+            perfect_outcar.write_to_file(self.perfect_subdir / 'OUTCAR')
+            logger.debug(f"Perfect system OUTCAR copied from {self.perfect_path / 'OUTCAR'}")
         # insert the defect
         defect_pos = np.array(self.params['position'])
         if self.params['defect'] == 'vac':
-            self.poscar.remove_ion(defect_pos, self.incar)
+            self.defective_poscar.remove_ion(defect_pos, self.incar)
             logger.debug(f"Inserted vacancy near {str(defect_pos)}")
         elif self.params['defect'] == 'sub':
-            rm_ion_pos = self.poscar.remove_ion(defect_pos, self.incar)
+            rm_ion_pos = self.defective_poscar.remove_ion(defect_pos, self.incar)
             try:
                 magmom = self.params['magmom']
             except:
                 magmom = None
-            self.poscar.add_ion(self.params['species'], rm_ion_pos, self.incar, magmom=magmom)
+            self.defective_poscar.add_ion(self.params['species'], rm_ion_pos, self.incar, magmom=magmom)
             logger.debug(f"Inserted substitutional impurity near {str(defect_pos)}")
         # adjust INCAR
-        self.update_input_file('INCAR', [{'Add': f'ISYM = 0'}]) # disable symmetry
+        self.defective_incar.update_tags([{'Add': f'ISYM = 0'}]) # disable symmetry
         # update POTCAR in case species were added
-        self.potcar = VaspPotcar(self.potcar_names, self.poscar)
+        self.potcar = VaspPotcar(self.potcar_names, self.defective_poscar)
         # defective system
-        self.defective_subdir_path = self.dir_path / 'defective'
-        self.defective_subdir_path.mkdir()
-        self.write_input_files(self.defective_subdir_path)
+        self.defective_subdir = self.dir / 'defective'
+        self.defective_subdir.mkdir()
+        self.write_input_files(self.defective_subdir, system='defective', overwrite_path=True)
     
     def run_vasp(self):
         # relax perfect system (if necessary)
         if self.perfect_path is None:
             logger.debug(f"Relaxing perfect system...")
-            super().run_vasp(self.perfect_subdir_path)
+            super().run_vasp(self.perfect_subdir)
         else:
             logger.debug(f"Perfect system already relaxed. Skipping it.")
         # relax defective system
         logger.debug(f"Relaxing defective system...")
-        super().run_vasp(self.defective_subdir_path)
+        super().run_vasp(self.defective_subdir)
         # extract energies
-        perfect_outcar = VaspOutcar(file_path = self.perfect_subdir_path / 'OUTCAR')
+        perfect_outcar = VaspOutcar(file_path = self.perfect_subdir / 'OUTCAR')
         perfect_energy = perfect_outcar.get_energy()
         logger.debug(f"Calculated perfect system energy: {perfect_energy} eV")
-        defective_outcar = VaspOutcar(file_path = self.defective_subdir_path / 'OUTCAR')
+        defective_outcar = VaspOutcar(file_path = self.defective_subdir / 'OUTCAR')
         defective_energy = defective_outcar.get_energy()
         logger.debug(f"Calculated defective system energy: {defective_energy} eV")
         # define chemical potential if it is not provided using E/N (bulk metals)
         try:
             chemical_pot = self.params['chemical_pot']
         except:
-            perfect_poscar = VaspPoscar(file_path = self.perfect_subdir_path / 'POSCAR')
-            num_species = len(perfect_poscar.get_species()[-1])
+            num_species = len(self.perfect_poscar.get_species()[-1])
             chemical_pot = perfect_energy / num_species
         logger.debug(f"Defined chemical potential: {chemical_pot} eV")
         # calculate formation energy
@@ -446,7 +454,7 @@ class PointDefectFormation(Study):
             formation_energy = defective_energy - perfect_energy - chemical_pot
         logger.debug(f"Calculated defect formation energy: {formation_energy} eV")
         # write data to a file
-        with open(self.dir_path / 'data.out', 'w') as d:
+        with open(self.dir / 'data.out', 'w') as d:
             d.write(f'Perfect system energy: {perfect_energy} eV\n')
             d.write(f'Defective system energy: {defective_energy} eV\n')
             d.write(f'Chemical potential: {chemical_pot} eV\n')

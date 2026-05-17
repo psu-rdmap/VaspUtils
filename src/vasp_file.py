@@ -77,6 +77,14 @@ class VaspFile:
             self.write_to_file(self.path)
 
 class VaspIncar(VaspFile):
+    def update_tags(self, tag_changes: list[dict]):
+        for line in tag_changes:
+            action = next(iter([k for k in line.keys()]))
+            if action == 'Add':
+                self.append_line(str(line[action]))
+            elif action == 'Remove':
+                self.remove_line(str(line[action]))
+
     def check_by_tag(self, tag: str):
         """Return the line index and line if a given INCAR tag already exists in lines."""
         for i, l in enumerate(self.lines):
@@ -130,6 +138,18 @@ class VaspPoscar(VaspFile):
         super().__init__(file_path=file_path, contents_str=contents_str)
         self.update_supercell_properties()
 
+    def load_from_string(self, contents_str):
+        super().load_from_string(contents_str)
+        self.update_supercell_properties()
+
+    def load_from_file(self, file_path):
+        super().load_from_file(file_path)
+        self.update_supercell_properties()
+
+    def overwrite_line(self, line_number, new_line):
+        super().overwrite_line(line_number, new_line)
+        self.update_supercell_properties()
+
     def update_supercell_properties(self):
         # obtain supercell symmetry/shape information from comment line of POSCAR
         self.lattice_type, self.supercell_shape = None, None
@@ -174,6 +194,10 @@ class VaspPoscar(VaspFile):
 
         logger.debug(f'{self.name}: updated supercell properties')
     
+    def update_scaling_factor(self, new_sf: float):
+        self.overwrite_line(1, str(new_sf) + '\n')
+        self.update_supercell_properties()
+
     def get_species(self):
         species: list[str] = strip_split(self.lines[5])
         amounts: list[int] = strip_split(self.lines[6], item_type=int)
@@ -188,18 +212,6 @@ class VaspPoscar(VaspFile):
         for l in self.lines[8:8+sum(amounts)]:
             ion_positions.append(np.array(strip_split(l, item_type=float)))
         return ion_positions
-    
-    def load_from_string(self, contents_str):
-        super().load_from_string(contents_str)
-        self.update_supercell_properties()
-
-    def load_from_file(self, file_path):
-        super().load_from_file(file_path)
-        self.update_supercell_properties()
-
-    def overwrite_line(self, line_number, new_line):
-        super().overwrite_line(line_number, new_line)
-        self.update_supercell_properties()
     
     def remove_ion(self, defect_pos: np.ndarray[float], incar: VaspIncar) -> float:
         """Remove ion closest to the provided position and adjust species line and INCAR magmom line accordingly."""
