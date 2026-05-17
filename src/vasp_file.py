@@ -237,15 +237,14 @@ class VaspPoscar(VaspFile):
 
     def add_ion(self, defect_species: str, defect_pos: np.ndarray[float], incar: VaspIncar, magmom: float = None):
         """Add ion at a given position and adjust species and INCAR magmom line accordingly."""
-        defect_pos = [str(val) for val in defect_pos.tolist()]
         species, amounts, species_list = self.get_species()
         magmom_list = incar.get_magmoms()
         # species is new -> append it to end of list
         if defect_species not in species:
-            species += defect_species
+            species += [defect_species]
             amounts += [1]
-            self.overwrite_line(5, tilps(species, sep='\t', precision=0))
-            self.overwrite_line(6, tilps(amounts, sep='\t', precision=0))
+            self.overwrite_line(5, tilps(species, sep='  ', precision=0))
+            self.overwrite_line(6, tilps(amounts, sep='  ', precision=0))
             self.insert_line(len(species_list)+8, tilps(defect_pos, sep='  '))
             if magmom_list:
                 magmom_list.append(f'{magmom:.2f}')
@@ -253,7 +252,7 @@ class VaspPoscar(VaspFile):
         # species is not new -> append it to end of specific species list
         else:
             amounts[species.index(defect_species)] += 1
-            self.overwrite_line(6, tilps(amounts, sep='\t', precision=0))
+            self.overwrite_line(6, tilps(amounts, sep='  ', precision=0))
             insert_idx = amounts[species.index(defect_species)] - 1
             self.insert_line(insert_idx+8, tilps(defect_pos, sep='  '))
             if magmom_list:

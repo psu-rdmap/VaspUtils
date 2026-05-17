@@ -140,6 +140,7 @@ class EosFit(Study):
                 self.restart = True
                 logger.debug(f'eosfit.restart found, restarting from scaling factor {self.finished_sfs[-1]}')
         except:
+            self.finished_sfs = []
             self.restart = False
         
         # finish initializing
@@ -147,7 +148,7 @@ class EosFit(Study):
 
     def build_directory(self):
         if self.restart:
-            self.dir = self.params['dir']
+            self.dir = Path(self.params['dir'])
         else:
             self.dir = next_path(self.parent_dir / 'eos')
             self.dir.mkdir()
@@ -160,17 +161,17 @@ class EosFit(Study):
             # cleanup directory and input files and update POSCAR if sf has not already been run
             if f'{sf:2f}' not in self.finished_sfs:
                 wipe_directory(subdir)
-                self.write_input_files(subdir)
                 self.poscar.update_scaling_factor(sf)
+                self.write_input_files(subdir)
 
         # equilibrium subdirectory
         subdir = self.dir / 'eq'
         subdir.mkdir(exist_ok=True)
         if 'eq' not in self.finished_sfs:
             wipe_directory(subdir)
-            self.write_input_files(subdir)
             self.poscar.update_scaling_factor(1.0)
-
+            self.write_input_files(subdir)
+            
     def run_vasp(self):
         # calculate energies for fitting
         energies, volumes = [], []
@@ -187,7 +188,7 @@ class EosFit(Study):
             else:
                 logger.debug(f"Skipping calculations since {sf} has already run")
             # get volume and energy
-            self.poscar.load_from_file(self.dir / 'POSCAR')
+            self.poscar.load_from_file(subdir / 'POSCAR')
             volumes.append(self.poscar.volume)
             logger.debug(f"Calculated volume: {self.poscar.volume}")
             self.outcar = VaspOutcar(file_path = subdir / 'OUTCAR')
@@ -219,11 +220,11 @@ class EosFit(Study):
         # print out data
         self.outcar.load_from_file(subdir / 'OUTCAR')
         with open(self.dir / 'data.out', 'w') as d:
-            d.write(f'Volumes: {volumes}\n')
+            d.write(f'Volumes: {[float(v) for v in volumes]}\n')
             d.write(f'Energies: {[float(e) for e in energies]}\n')
             d.write(f'Equilibrium volume = {self.poscar.volume} A3\n')
             d.write(f'Equilibrium energy = {self.outcar.get_energy()} eV\n')
-            d.write(f"Equilibrium lattice constant = {self.poscar.lattice_parameters['a']}")
+            d.write(f"Equilibrium lattice constant = {self.poscar.lattice_parameters['a']} A\n")
             d.write(f'Bulk modulus: {bulk_mod / kJ * 1.0e24}')
         logger.debug(f"Printed fit data to {self.dir / 'data.out'}")
 
@@ -407,7 +408,7 @@ class PointDefectFormation(Study):
             self.defective_poscar.remove_ion(defect_pos, self.defective_incar)
             logger.debug(f"Inserted vacancy near {str(defect_pos)}")
         elif self.params['defect'] == 'sub':
-            rm_ion_pos = self.defective_poscar.remove_ion(defect_pos, self.incar)
+            rm_ion_pos = self.defective_poscar.remove_ion(defect_pos, self.defective_incar)
             try:
                 magmom = self.params['magmom']
             except:
