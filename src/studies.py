@@ -28,7 +28,7 @@ class Study:
 
         # initialize VASP input files
         self.potcar_names = [n.strip() for n in self.calc_params['POTCAR'].split('\n')]
-        self.load_input_files()
+        self.init_input_files()
 
         # build directory and run vasp (implemented by subclasses)
 
@@ -104,10 +104,9 @@ class Study:
 
             # update poscar file at the end
             self.contcar.write_to_file(run_path / 'POSCAR')
-            self.poscar.load_from_file(run_path / 'POSCAR')
 
             # write out input YAML for reference
-            with open('input.yml', 'r') as f:
+            with open(run_path / 'input.yml', 'w') as f:
                 yaml.dump(self.input_yml, f)
 
 study_registry: dict[str, Study] = {}
@@ -182,12 +181,13 @@ class EosFit(Study):
             logger.debug(f"Loaded input files for scale factor {sf}")
             # run vasp if it has not already been run
             if f'{sf:2f}' not in self.finished_sfs:
-                super().run_vasp(subdir)
+                super().run_vasp(self.steps_params, subdir)
                 with open(self.dir / 'eosfit.restart', 'a') as f:
                     f.write(f'{sf:.2f}\n')
             else:
                 logger.debug(f"Skipping calculations since {sf} has already run")
             # get volume and energy
+            self.poscar.load_from_file(self.dir / 'POSCAR')
             volumes.append(self.poscar.volume)
             logger.debug(f"Calculated volume: {self.poscar.volume}")
             self.outcar = VaspOutcar(file_path = subdir / 'OUTCAR')
@@ -210,7 +210,7 @@ class EosFit(Study):
 
         # calculate equilibrium energy
         if 'eq' not in self.finished_sfs:
-            super().run_vasp(subdir)
+            super().run_vasp(self.steps_params, subdir)
             with open(self.dir / 'eosfit.restart', 'a') as f:
                 f.write(f'eq\n')
         else:
@@ -374,7 +374,7 @@ class PointDefectFormation(Study):
         self.defective_poscar = VaspPoscar(contents_str=self.calc_params['POSCAR'])
         
         # only need one version to manage both systems
-        self.potcar = VaspPotcar(self.potcar_names, self.perfect_files['POSCAR'])
+        self.potcar = VaspPotcar(self.potcar_names, self.perfect_poscar)
         logger.debug('Initialized VASP input file objects from user input')
 
     def write_input_files(self, dir, system: str = None, overwrite_path=False):
@@ -404,7 +404,7 @@ class PointDefectFormation(Study):
         # insert the defect
         defect_pos = np.array(self.params['position'])
         if self.params['defect'] == 'vac':
-            self.defective_poscar.remove_ion(defect_pos, self.incar)
+            self.defective_poscar.remove_ion(defect_pos, self.defective_incar)
             logger.debug(f"Inserted vacancy near {str(defect_pos)}")
         elif self.params['defect'] == 'sub':
             rm_ion_pos = self.defective_poscar.remove_ion(defect_pos, self.incar)
@@ -412,7 +412,7 @@ class PointDefectFormation(Study):
                 magmom = self.params['magmom']
             except:
                 magmom = None
-            self.defective_poscar.add_ion(self.params['species'], rm_ion_pos, self.incar, magmom=magmom)
+            self.defective_poscar.add_ion(self.params['species'], rm_ion_pos, self.defective_incar, magmom=magmom)
             logger.debug(f"Inserted substitutional impurity near {str(defect_pos)}")
         # adjust INCAR
         self.defective_incar.update_tags([{'Add': f'ISYM = 0'}]) # disable symmetry
@@ -427,12 +427,12 @@ class PointDefectFormation(Study):
         # relax perfect system (if necessary)
         if self.perfect_path is None:
             logger.debug(f"Relaxing perfect system...")
-            super().run_vasp(self.perfect_subdir)
+            super().run_vasp(self.steps_params['perfect'], self.perfect_subdir)
         else:
             logger.debug(f"Perfect system already relaxed. Skipping it.")
         # relax defective system
         logger.debug(f"Relaxing defective system...")
-        super().run_vasp(self.defective_subdir)
+        super().run_vasp(self.steps_params['defective'], self.defective_subdir)
         # extract energies
         perfect_outcar = VaspOutcar(file_path = self.perfect_subdir / 'OUTCAR')
         perfect_energy = perfect_outcar.get_energy()

@@ -21,14 +21,14 @@ def main():
     logger.debug(f'Loaded input file {input_fp}')
 
     # initialize a study
-    study_type = input_params['study']['parameters']['type']
+    study_type = input_params['study']['type']
     study: Study = study_registry[study_type](input_params)
     logger.debug(f'Initialized study type {study_type}')
     
     # build directory tree and copy in input file
     study.build_directory()
-    logger.debug(f'Built directory tree at {study.dir_path}')
-    shutil.copy(input_fp, study.dir_path)
+    logger.debug(f'Built directory tree at {study.dir}')
+    shutil.copy(input_fp, study.dir)
 
     # run vasp
     logger.debug(f'Starting VASP calculations')

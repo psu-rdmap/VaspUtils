@@ -295,12 +295,12 @@ class VaspPotcar(VaspFile):
             current_potcar_names.append(potcar_dirname)
             potcar_path = POTPAW_PBE_PATH / potcar_dirname / 'POTCAR'
             try:
-                with open(potcar_path) as src_p:
+                with open(potcar_path, 'r') as src_p:
                     potcar_lines += src_p.readlines()
             except:
                 raise FileNotFoundError(f'[{potcar_path}] File does not exist')
         # remove trailing \n characters
-        potcar_lines = [l.strip('\n') for l in potcar_lines]
+        self.lines = [l.strip('\n') for l in potcar_lines]
         logger.debug(f'{self.name}: loaded lines for {current_potcar_names}')
         
 class VaspOutcar(VaspFile):
