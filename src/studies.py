@@ -135,6 +135,7 @@ class Individual(Study):
         # define first step as common files (should be just a name)
         self.state[1] = deepcopy(common_files)
         self.state[1]['name'] = self.steps_params[1]['name']
+        logger.debug('Defined step 1')
 
         # read next integer-labelled steps (2, 3, ...)
         for step_id in range(2, self.num_steps+1):
@@ -157,6 +158,7 @@ class Individual(Study):
                     step_dict[key] = self.update_input_file(file=self.state[step_id-1][key], ops=val)
                 else:
                     step_dict[key] = vasp_file_registry[fn](contents_str=val)
+            logger.debug(f'Defined step {step_id}')
             
             # save step
             self.state[step_id] = step_dict
@@ -181,7 +183,6 @@ class Individual(Study):
     def build_directory(self):
         self.dir = next_path(self.parent_dir / 'individual')
         self.dir.mkdir()
-        self.write_input_files('common', self.dir)
     
     def run_vasp(self):
         super().run_vasp(self.dir)

@@ -78,7 +78,7 @@ class VaspFile:
             self.write_to_file(self.path)
 
 vasp_file_registry: dict[str, VaspFile] = {}
-def register_vasp_file_type(cls: VaspFile):
+def register_vasp_file_type(cls):
     """Registry enrollment so that Study subclasses can be instantiated by string name."""
     vasp_file_registry[cls.alias] = cls
     return cls
@@ -282,12 +282,12 @@ class VaspKPoints(VaspFile):
 @register_vasp_file_type   
 class VaspPotcar(VaspFile):
     alias = 'POTCAR'
-    def __init__(self, potcar_names: list[str], poscar: VaspPoscar):
+    def __init__(self, contents_str: str = None, poscar: VaspPoscar = None):
         self.name = self.__class__.__name__
         self.lines: list[str] = None
         self.path: Path = None
-        self.potcar_names = potcar_names
-        self.ref_poscar = None
+        self.potcar_names = [n.strip() for n in contents_str.split('\n')]
+        self.ref_poscar: VaspPoscar = poscar
         self.load_from_poscar(poscar)
 
     def load_from_poscar(self, poscar: VaspPoscar):
