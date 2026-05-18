@@ -9,6 +9,7 @@ POTPAW_PBE_PATH = Path('/storage/group/xvw5285/default/ATAT/vasp_pots/potpaw_PBE
 logger = logging.getLogger('VaspUtils')
 
 class VaspFile:
+    alias = 'VaspFile'
     def __init__(self, file_path: Path = None, contents_str: str = None):
         self.name = self.__class__.__name__
         self.lines: list[str] = None
@@ -76,7 +77,15 @@ class VaspFile:
         if self.path:
             self.write_to_file(self.path)
 
+vasp_file_registry: dict[str, VaspFile] = {}
+def register_vasp_file_type(cls: VaspFile):
+    """Registry enrollment so that Study subclasses can be instantiated by string name."""
+    vasp_file_registry[cls.alias] = cls
+    return cls
+
+@register_vasp_file_type
 class VaspIncar(VaspFile):
+    alias = 'INCAR'
     def update_tags(self, tag_changes: list[dict]):
         for line in tag_changes:
             action = next(iter([k for k in line.keys()]))
@@ -133,7 +142,9 @@ class VaspIncar(VaspFile):
             new_magmom_str += f' {num_mag}*{mag}'
         self.append_line(new_magmom_str)
 
+@register_vasp_file_type
 class VaspPoscar(VaspFile):
+    alias = 'POSCAR'
     def __init__(self, file_path=None, contents_str=None):
         super().__init__(file_path=file_path, contents_str=contents_str)
         self.update_supercell_properties()
@@ -264,10 +275,13 @@ class VaspPoscar(VaspFile):
                     magmom_list.insert(insert_idx, magmom_list[insert_idx-1])
                 incar.load_magmoms_from_list(magmom_list)
 
+@register_vasp_file_type
 class VaspKPoints(VaspFile):
-    pass
-         
+    alias = 'KPOINTS'
+      
+@register_vasp_file_type   
 class VaspPotcar(VaspFile):
+    alias = 'POTCAR'
     def __init__(self, potcar_names: list[str], poscar: VaspPoscar):
         self.name = self.__class__.__name__
         self.lines: list[str] = None
@@ -301,8 +315,10 @@ class VaspPotcar(VaspFile):
         # remove trailing \n characters
         self.lines = [l.strip('\n') for l in potcar_lines]
         logger.debug(f'{self.name}: loaded lines for {current_potcar_names}')
-        
+
+@register_vasp_file_type       
 class VaspOutcar(VaspFile):
+    alias = 'OUTCAR'
     def get_energy(self):
         """Scrub through OUTCAR until the last energy is read."""
         last_line_w_energy = None
@@ -330,8 +346,10 @@ class VaspOutcar(VaspFile):
         else:
             magmoms = None
         return magmoms
-    
+
+@register_vasp_file_type
 class VaspContcar(VaspPoscar):
+    alias = 'CONTCAR'
     def __init__(self, file_path=None, contents_str=None):
         super().__init__(file_path=file_path, contents_str=contents_str)
         self.mtime = 0

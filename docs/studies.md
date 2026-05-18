@@ -148,5 +148,54 @@ steps:
                 ...
         ...
 ```
+# Calculating Density of States and Band Structure
 
-## Examples
+Every study has the option to add some post-processing steps which calculate and plot the electron density of states and band structure for a given calculation. This is achieved by enabling the `dos` and `bands` study parameters, then including the corresponding input files that will be executed in the `calculations` section.
+
+```yaml
+study:
+
+
+calculations:
+    INCAR: |
+        ...
+    KPOINTS: |
+        ...
+    POSCAR: |
+        ...
+    POTCAR: |
+        <directory name of species 1>
+        <directory name of species 2>
+        ...
+    
+    dos:
+        INCAR: |
+            ...
+        KPOINTS: |
+            ...
+    
+    bands:
+        INCAR: |
+            ...
+        KPOINTS: |
+            ...
+
+
+steps:
+    1:
+        name: <descriptive name of step 1>
+        INCAR:
+        - Add: <tag definition to add or overwrite>
+        - Remove: <tag to remove>
+        KPOINTS: |
+            ...
+    2:
+        name: <descriptive name of step 1>
+        INCAR:
+            ...
+    ...
+```
+
+
+
+# Examples

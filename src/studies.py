@@ -1,4 +1,4 @@
-from vasp_file import VaspFile, VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar
+from vasp_file import vasp_file_registry, VaspFile, VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar
 from utils import next_path, wipe_directory, strip_split
 from pathlib import Path
 import subprocess, time, logging, yaml
@@ -26,53 +26,39 @@ class Study:
         self.name = self.params['name']
         logger.debug(f'Starting study: {self.name}')
 
-        # initialize VASP input files
-        self.potcar_names = [n.strip() for n in self.calc_params['POTCAR'].split('\n')]
-        self.init_input_files()
+        # define state dictionary organizing calculations and steps
+        self.state: dict[int | str, dict[int | str, VaspFile]] = None
+        self.init_state()
 
-        # build directory and run vasp (implemented by subclasses)
+    def update_input_file(self, file: VaspFile, ops: list[dict]):
+        for op in ops:
+            action = next(iter([k for k in op.keys()]))
+            if action == 'Add':
+                file.append_line(str(op[action]))
+            elif action == 'Remove':
+                file.remove_line(str(op[action]))
 
-    def init_input_files(self):
-        """Initialize all VASP input files specific to the given study."""
-        self.incar = VaspIncar(contents_str=self.calc_params['INCAR'])
-        self.poscar = VaspPoscar(contents_str=self.calc_params['POSCAR'])
-        self.kpoints = VaspKPoints(contents_str=self.calc_params['KPOINTS'])
-        self.potcar = VaspPotcar(self.potcar_names, self.poscar)       
-        logger.debug('Initialized VASP input file objects from user input')
+    def write_input_files(self, step_id: int | str, write_path: Path):
+        for key, val in self.state[step_id]:
+            if isinstance(val, VaspFile):
+                val.write_to_file(write_path)
 
+    def init_state(self):
+        """Initialize a dictionary containing all references required to run each calculation and their steps."""
+        pass
+    
     def build_directory(self):
         """Build directory specific to each Study subclass."""
         pass
 
-    def write_input_files(self, dir: Path, overwrite_path=False):
-        """Write current lines of input files to a files in a given directory."""
-        self.incar.write_to_file(dir / 'INCAR', overwrite_path=overwrite_path)
-        self.poscar.write_to_file(dir / 'POSCAR', overwrite_path=overwrite_path)
-        self.kpoints.write_to_file(dir / 'KPOINTS', overwrite_path=overwrite_path)
-        self.potcar.write_to_file(dir / 'POTCAR', overwrite_path=overwrite_path)
-
-    def load_input_files(self, dir: Path):
-        """Load lines of input files in a given directory."""
-        self.incar = VaspIncar(file_path=dir / 'INCAR')
-        self.poscar = VaspPoscar(file_path=dir / 'POSCAR')
-        self.kpoints = VaspKPoints(file_path=dir / 'KPOINTS')
-        self.potcar = VaspPotcar(self.potcar_names, self.poscar)
-    
-    def run_vasp(self, steps_params: dict, run_path: Path):
-        """Run VASP in the background and perform any necessary supporting operations."""
-        num_steps = len(steps_params.keys())
-        for idx, params in steps_params.items():
-            logger.debug(f"({idx}/{num_steps}) Running calculation: {params['name']}")
-            
-            # update tags for step
-            try: 
-                self.incar.update_tags(params['tags'])
+    def run_vasp(self, run_path: Path):
+        num_steps = len(self.steps_params.keys())
+        for step_id in range(1, num_steps+1):
+            # update files corresponding to this step
+            try:
+                self.write_input_files(step_id, run_path)
             except:
-                pass
-
-            # initialize steps directory
-            steps_dir = run_path / 'steps'
-            steps_dir.mkdir(exist_ok=True)
+                continue
 
             # run vasp in the background
             vasp_out = open(run_path / 'vasp.out', 'a')
@@ -91,23 +77,35 @@ class Study:
                     lines = f.readlines()
                 if len(lines):
                     contcar_loaded = True
-            self.contcar = VaspContcar(file_path = run_path / 'CONTCAR')
+            contcar = VaspContcar(file_path = run_path / 'CONTCAR')
 
             # continuously save CONTCAR as it updates every ionic step
-            while vasp.poll() is None:
-                time.sleep(1)
-                if self.contcar.check_updated():
-                    time.sleep(0.5) # wait a moment to prevent read-write race
-                    self.contcar.write_to_file(next_path(steps_dir / 'CONTCAR'))
-            vasp.wait()
-            vasp_out.close()
+            i = 0
+            with open('CONTCAR_steps', 'a') as f:
+                while vasp.poll() is None:
+                    time.sleep(1)
+                    if contcar.check_updated():
+                        time.sleep(0.5) # wait a moment to prevent read-write race
+                        f.write(f'{i}\n')
+                        f.writelines(contcar.lines)
+                        f.write('\n')
+                vasp.wait()
+                vasp_out.close()
 
             # update poscar file at the end
-            self.contcar.write_to_file(run_path / 'POSCAR')
+            contcar.write_to_file(run_path / 'POSCAR')
 
             # write out input YAML for reference
             with open(run_path / 'input.yml', 'w') as f:
                 yaml.dump(self.input_yml, f)
+        
+        # special steps at the end           
+
+    def run_dos_step(self):
+        pass
+
+    def run_bands_step(self):
+        pass
 
 study_registry: dict[str, Study] = {}
 def register_study(cls):
@@ -118,16 +116,77 @@ def register_study(cls):
 
 @register_study
 class Individual(Study):
-    """Simplest study consisting of one set of VASP calculations in a single directory."""
+    """Simplest study consisting of an individual calculation."""
+    def init_state(self):
+        self.state: dict[int | str, dict] = dict.fromkeys(self.steps_params.keys())
+        self.num_steps = len(self.steps_params.keys())
+
+        # read in files from `calculations` section
+        common_files = {}
+        for fn, contents in self.calc_params.items():
+            if fn in ['INCAR', 'KPOINTS', 'POSCAR']:
+                common_files[fn] = vasp_file_registry[fn](contents_str=contents)
+        
+        common_files['POTCAR'] = VaspPotcar(contents_str=self.calc_params['POTCAR'], poscar=common_files['POSCAR'])
+
+        self.state['common'] = common_files
+        logger.debug('Read in common VASP files from user input')
+
+        # define first step as common files (should be just a name)
+        self.state[1] = deepcopy(common_files)
+        self.state[1]['name'] = self.steps_params[1]['name']
+
+        # read next integer-labelled steps (2, 3, ...)
+        for step_id in range(2, self.num_steps+1):
+            try:
+                step_dict: dict = self.steps_params[step_id]
+            except:
+                continue
+            
+            for key, val in step_dict.items():
+                if key == 'name':
+                    step_dict['name'] = val
+                    continue
+                
+                # in run_vasp only INCAR and KPOINTS should be overwritten between steps
+                if key in ['POSCAR', 'POTCAR']:
+                    raise KeyError('Steps may only modify INCAR and KPOINTS files')
+
+                # user gives either modifications to file, or the entire file
+                if type(val) == list:
+                    step_dict[key] = self.update_input_file(file=self.state[step_id-1][key], ops=val)
+                else:
+                    step_dict[key] = vasp_file_registry[fn](contents_str=val)
+            
+            # save step
+            self.state[step_id] = step_dict
+
+        # optional dos or band post-processing steps
+        try:
+            dos_dict: dict = self.steps_params['dos']
+            for fn, contents in dos_dict.items():
+                dos_dict[fn] = vasp_file_registry[fn](contents_str=contents)
+            self.state['dos'] = dos_dict
+        except:
+            pass
+
+        try:
+            bands_dict: dict = self.steps_params['bands']
+            for fn, contents in bands_dict.items():
+                bands_dict[fn] = vasp_file_registry[fn](contents_str=contents)
+            self.state['bands'] = bands_dict
+        except:
+            pass
+
     def build_directory(self):
-        """Single directory with no subdirectories."""
         self.dir = next_path(self.parent_dir / 'individual')
         self.dir.mkdir()
-        self.write_input_files(self.dir, overwrite_path=True)
+        self.write_input_files('common', self.dir)
     
     def run_vasp(self):
-        super().run_vasp(self.steps_params, self.dir)
- 
+        super().run_vasp(self.dir)
+
+
 @register_study
 class EosFit(Study):
     """Calculate energy for scaled up/down supercells and fit an E(V) equation of state."""
