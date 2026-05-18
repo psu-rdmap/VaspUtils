@@ -1,4 +1,4 @@
-from vasp_file import vasp_file_registry, VaspFile, VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar
+from vasp_file import vasp_file_registry, VaspFile, VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar, VaspDoscar
 from utils import next_path, wipe_directory, strip_split
 from pathlib import Path
 import subprocess, time, logging, yaml
@@ -51,24 +51,24 @@ class Study:
         """Build directory specific to each Study subclass."""
         pass
 
-    def run_vasp(self, run_path: Path):
+    def run_vasp(self, run_dir: Path):
         num_steps = len(self.steps_params.keys())
         for step_id in range(1, num_steps+1):
             # update files corresponding to this step
             try:
-                self.write_input_files(step_id, run_path)
+                self.write_input_files(step_id, run_dir)
             except:
                 continue
 
             # run vasp in the background
-            vasp_out = open(run_path / 'vasp.out', 'a')
+            vasp_out = open(run_dir / 'vasp.out', 'a')
             vasp_cmd = ['srun', '--kill-on-bad-exit', '--cpu-bind=cores', 'vasp_std']
-            vasp = subprocess.Popen(vasp_cmd, cwd=run_path, stdout=vasp_out, stderr=subprocess.STDOUT)
+            vasp = subprocess.Popen(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
             logger.debug(f'VASP launched')
 
             # load CONTCAR after the first scf cycle
             contcar_loaded = False
-            contcar_path = run_path / 'CONTCAR'
+            contcar_path = run_dir / 'CONTCAR'
             while contcar_loaded is False:
                 time.sleep(1)
                 if not contcar_path.exists():
@@ -77,11 +77,11 @@ class Study:
                     lines = f.readlines()
                 if len(lines):
                     contcar_loaded = True
-            contcar = VaspContcar(file_path = run_path / 'CONTCAR')
+            contcar = VaspContcar(file_path = run_dir / 'CONTCAR')
 
             # continuously save CONTCAR as it updates every ionic step
             i = 1
-            with open(run_path / 'CONTCAR_steps', 'a') as f:
+            with open(run_dir / 'CONTCAR_steps', 'a') as f:
                 f.write('0\n\n')
                 f.writelines([l+'\n' for l in contcar.lines])
                 f.write('\n')
@@ -97,30 +97,32 @@ class Study:
                 vasp_out.close()
 
             # update poscar file at the end
-            contcar.write_to_file(run_path / 'POSCAR')
+            contcar.write_to_file(run_dir / 'POSCAR')
 
             # write out input YAML for reference
-            with open(run_path / 'input.yml', 'w') as f:
+            with open(run_dir / 'input.yml', 'w') as f:
                 yaml.dump(self.input_yml, f)
         
         # special steps at the end
         try:
-            self.write_input_files('dos', run_path)
-            with open(run_path / 'vasp.out', 'a') as vasp_out:
-                vasp = subprocess.run(vasp_cmd, cwd=run_path, stdout=vasp_out, stderr=subprocess.STDOUT)
-            logger.debug(f'DOS calculation done')
+            self.write_input_files('dos', run_dir)
+            logger.debug(f'DOS input files provided. Doing calculation...')
+            with open(run_dir / 'vasp.out', 'a') as vasp_out:
+                vasp = subprocess.run(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
+            doscar = VaspDoscar(file_path=run_dir / 'DOSCAR')
+            doscar.plot(run_dir / 'dos.png')
         except Exception as e:
             print(e)
             pass
 
         # reset POSCAR
-        self.write_input_files(step_id, run_path)
-        contcar.write_to_file(run_path / 'POSCAR')
+        self.write_input_files(step_id, run_dir)
+        contcar.write_to_file(run_dir / 'POSCAR')
 
         try:
-            self.write_input_files('bands', run_path)
-            with open(run_path / 'vasp.out', 'a') as vasp_out:
-                vasp = subprocess.run(vasp_cmd, cwd=run_path, stdout=vasp_out, stderr=subprocess.STDOUT)
+            self.write_input_files('bands', run_dir)
+            with open(run_dir / 'vasp.out', 'a') as vasp_out:
+                vasp = subprocess.run(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
             logger.debug(f'Band structure calculation done')
         except Exception as e:
             print(e)

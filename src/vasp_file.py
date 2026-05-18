@@ -3,6 +3,7 @@ from utils import strip_split, tilps
 import numpy as np
 import pandas as pd
 import logging
+import matplotlib.pyplot as plt
 
 POTPAW_PBE_PATH = Path('/storage/group/xvw5285/default/ATAT/vasp_pots/potpaw_PBE.54/')
 
@@ -363,6 +364,16 @@ class VaspContcar(VaspPoscar):
             return True
         else:
             return False
+        
+@register_vasp_file_type
+class VaspDoscar(VaspFile):
+    alias = 'DOSCAR'
+    def plot(self, save_path: Path):
+        """Plots the electron density of states."""
+        for l in self.lines[6:]:
+            energy, dos, int_dos = strip_split(l, item_type=float)
+            plt.plot(energy, dos)
+            plt.savefig(save_path)
 
 """
 class VaspPoscar(VaspText):
