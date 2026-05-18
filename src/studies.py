@@ -39,9 +39,9 @@ class Study:
                 file.remove_line(str(op[action]))
 
     def write_input_files(self, step_id: int | str, write_path: Path):
-        for key, val in self.state[step_id]:
+        for key, val in self.state[step_id].items():
             if isinstance(val, VaspFile):
-                val.write_to_file(write_path)
+                val.write_to_file(write_path / key)
 
     def init_state(self):
         """Initialize a dictionary containing all references required to run each calculation and their steps."""
@@ -80,14 +80,18 @@ class Study:
             contcar = VaspContcar(file_path = run_path / 'CONTCAR')
 
             # continuously save CONTCAR as it updates every ionic step
-            i = 0
-            with open('CONTCAR_steps', 'a') as f:
+            i = 1
+            with open(run_path / 'CONTCAR_steps', 'a') as f:
+                f.write('0\n\n')
+                f.writelines([l+'\n' for l in contcar.lines])
+                f.write('\n')
+
                 while vasp.poll() is None:
                     time.sleep(1)
                     if contcar.check_updated():
                         time.sleep(0.5) # wait a moment to prevent read-write race
-                        f.write(f'{i}\n')
-                        f.writelines(contcar.lines)
+                        f.write(f'{i}\n\n')
+                        f.writelines([l+'\n' for l in contcar.lines])
                         f.write('\n')
                 vasp.wait()
                 vasp_out.close()
@@ -99,13 +103,28 @@ class Study:
             with open(run_path / 'input.yml', 'w') as f:
                 yaml.dump(self.input_yml, f)
         
-        # special steps at the end           
+        # special steps at the end
+        try:
+            self.write_input_files('dos', run_path)
+            with open(run_path / 'vasp.out', 'a') as vasp_out:
+                vasp = subprocess.run(vasp_cmd, cwd=run_path, stdout=vasp_out, stderr=subprocess.STDOUT)
+            logger.debug(f'DOS calculation done')
+        except Exception as e:
+            print(e)
+            pass
 
-    def run_dos_step(self):
-        pass
+        # reset POSCAR
+        self.write_input_files(step_id, run_path)
+        contcar.write_to_file(run_path / 'POSCAR')
 
-    def run_bands_step(self):
-        pass
+        try:
+            self.write_input_files('bands', run_path)
+            with open(run_path / 'vasp.out', 'a') as vasp_out:
+                vasp = subprocess.run(vasp_cmd, cwd=run_path, stdout=vasp_out, stderr=subprocess.STDOUT)
+            logger.debug(f'Band structure calculation done')
+        except Exception as e:
+            print(e)
+            pass
 
 study_registry: dict[str, Study] = {}
 def register_study(cls):
