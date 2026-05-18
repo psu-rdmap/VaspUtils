@@ -27,7 +27,7 @@ class Study:
         logger.debug(f'Starting study: {self.name}')
 
         # define state dictionary organizing calculations and steps
-        self.state: dict[int | str, dict[int | str, VaspFile]] = None
+        self.state, self.calc_ids, self.skip_calc_ids = {}, [], []
         self.init_state()
 
     def update_input_file(self, file: VaspFile, ops: list[dict]):
@@ -38,27 +38,110 @@ class Study:
             elif action == 'Remove':
                 file.remove_line(str(op[action]))
 
-    def write_input_files(self, step_id: int | str, write_path: Path):
-        for key, val in self.state[step_id].items():
+    def write_input_files(self, dict_w_files: dict[str, VaspFile], write_dir: Path):
+        for key, val in dict_w_files.items():
             if isinstance(val, VaspFile):
-                val.write_to_file(write_path / key)
+                val.write_to_file(write_dir / key)
 
     def init_state(self):
         """Initialize a dictionary containing all references required to run each calculation and their steps."""
-        pass
+        # define calc_ids, skip_calc_ids in subclass
+        self.state = dict.fromkeys(self.calc_ids, {})
+        
+        # read in files from `calculations` section
+        common_files: dict[str, VaspFile] = {}
+        for key, val in self.calc_params.items():
+            if fn in ['INCAR', 'KPOINTS', 'POSCAR']:
+                common_files[fn] = vasp_file_registry[fn](contents_str=contents)
+
+        if 'POSCAR' not in common_files.keys():
+            raise KeyError('No POSCAR found in the `calculations` section`. All calculations must share a common POSCAR file')
+
+        if 'POTCAR' in common_files.keys():
+            common_files['POTCAR'] = VaspPotcar(contents_str=self.calc_params['POTCAR'], poscar=common_files['POSCAR'])
+
+        self.state['common'] = common_files
+        logger.debug('Read in common VASP files from user input')
+
+        # steps for each calculation
+        for calc_id in self.calc_ids:
+            calc_dict: dict = self.state[calc_id]
+            steps_params: dict = deepcopy(calc_dict['step_params'])
+            step_dict: dict = deepcopy(steps_params[step_id])
+
+            # option to skip calculation
+            if calc_id in self.skip_calc_ids:
+                continue
+
+            # add files shared by all calculations to first step (should be just a name at this point)
+            for fn, file in self.state['common'].items():
+                if fn in ['INCAR', 'POSCAR', 'KPOINTS', 'POTCAR']:
+                    step_dict[fn] = deepcopy(file)
+
+            # save step
+            calc_dict[1] = step_dict
+            logger.debug(f'Defined step 1 for {calc_id}')
+
+            # read next integer-labelled steps (2, 3, ...)
+            num_steps = len([k for k in steps_params.keys() if type(k) == int])
+            for step_id in range(2, num_steps+1):
+                step_dict: dict = deepcopy(steps_params[step_id])
+
+                # replace file modifications with a VaspFile object
+                for key, val in step_dict.items():
+                    # only INCAR and KPOINTS should be overwritten between steps
+                    if key in ['POSCAR', 'POTCAR']:
+                        raise KeyError('Steps may only modify INCAR and KPOINTS files')
+
+                    # user gives either modifications to file, or the entire file
+                    if type(val) == list:
+                        step_dict[key] = self.update_input_file(file=calc_dict[step_id-1][key], ops=val)
+                    else:
+                        step_dict[key] = vasp_file_registry[fn](contents_str=val)
+
+                    # save step
+                    calc_dict[step_id] = step_dict
+                    logger.debug(f'Defined step {step_id} for {calc_id}')
+            
+            # optional dos or band post-processing steps
+            try:
+                dos_dict: dict = self.steps_params['dos']
+                for fn, contents in dos_dict.items():
+                    dos_dict[fn] = vasp_file_registry[fn](contents_str=contents)
+                calc_dict['dos'] = dos_dict
+            except:
+                pass
+
+            try:
+                bands_dict: dict = self.steps_params['bands']
+                for fn, contents in bands_dict.items():
+                    bands_dict[fn] = vasp_file_registry[fn](contents_str=contents)
+                calc_dict['bands'] = bands_dict
+            except:
+                pass
+
+            # save calculation
+            self.state[calc_id] = calc_dict
     
     def build_directory(self):
-        """Build directory specific to each Study subclass."""
+        """Build directory specific to each subclass. Assign a directory path to each calculation."""
         pass
 
-    def run_vasp(self, run_dir: Path):
-        num_steps = len(self.steps_params.keys())
+    def run_vasp(self, calc_id):
+        """Runs a calculation and its steps."""
+        calc_dict: dict = self.state[calc_id]
+        run_dir = calc_dict['dir']
+
+        # write common files before running steps
+        self.write_input_files(self.state['common'], run_dir)
+
+        # run each step
+        num_steps = len([k for k in calc_dict.keys() if type(k) == int])
         for step_id in range(1, num_steps+1):
-            # update files corresponding to this step
-            try:
-                self.write_input_files(step_id, run_dir)
-            except:
-                continue
+            step_dict = calc_dict[step_id]
+            
+            # write non-common and modified input files
+            self.write_input_files(step_dict, run_dir)
 
             # run vasp in the background
             vasp_out = open(run_dir / 'vasp.out', 'a')
@@ -105,28 +188,24 @@ class Study:
         
         # special steps at the end
         try:
-            self.write_input_files('dos', run_dir)
+            self.write_input_files(calc_id['dos'], run_dir)
             logger.debug(f'DOS input files provided. Doing calculation...')
             with open(run_dir / 'vasp.out', 'a') as vasp_out:
                 vasp = subprocess.run(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
             doscar = VaspDoscar(file_path=run_dir / 'DOSCAR')
             doscar.plot(run_dir / 'dos.png')
-        except Exception as e:
-            print(e)
-            pass
-
-        # reset POSCAR
-        self.write_input_files(step_id, run_dir)
-        contcar.write_to_file(run_dir / 'POSCAR')
+            logger.debug(f'DOS calculation done')
+        except:
+            logger.debug(f'Skipping DOS calculation')
 
         try:
-            self.write_input_files('bands', run_dir)
+            self.write_input_files(calc_id['bands'], run_dir)
+            logger.debug(f'Band structure input files provided. Doing calculation...')
             with open(run_dir / 'vasp.out', 'a') as vasp_out:
                 vasp = subprocess.run(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
             logger.debug(f'Band structure calculation done')
-        except Exception as e:
-            print(e)
-            pass
+        except:
+            logger.debug(f'Skipping band structure calculation')
 
 study_registry: dict[str, Study] = {}
 def register_study(cls):
@@ -134,100 +213,52 @@ def register_study(cls):
     study_registry[cls.__name__] = cls
     return cls
 
-
 @register_study
 class Individual(Study):
     """Simplest study consisting of an individual calculation."""
     def init_state(self):
-        self.state: dict[int | str, dict] = dict.fromkeys(self.steps_params.keys())
-        self.num_steps = len(self.steps_params.keys())
-
-        # read in files from `calculations` section
-        common_files = {}
-        for fn, contents in self.calc_params.items():
-            if fn in ['INCAR', 'KPOINTS', 'POSCAR']:
-                common_files[fn] = vasp_file_registry[fn](contents_str=contents)
-        
-        common_files['POTCAR'] = VaspPotcar(contents_str=self.calc_params['POTCAR'], poscar=common_files['POSCAR'])
-
-        self.state['common'] = common_files
-        logger.debug('Read in common VASP files from user input')
-
-        # define first step as common files (should be just a name)
-        self.state[1] = deepcopy(common_files)
-        self.state[1]['name'] = self.steps_params[1]['name']
-        logger.debug('Defined step 1')
-
-        # read next integer-labelled steps (2, 3, ...)
-        for step_id in range(2, self.num_steps+1):
-            try:
-                step_dict: dict = self.steps_params[step_id]
-            except:
-                continue
-            
-            for key, val in step_dict.items():
-                if key == 'name':
-                    step_dict['name'] = val
-                    continue
-                
-                # in run_vasp only INCAR and KPOINTS should be overwritten between steps
-                if key in ['POSCAR', 'POTCAR']:
-                    raise KeyError('Steps may only modify INCAR and KPOINTS files')
-
-                # user gives either modifications to file, or the entire file
-                if type(val) == list:
-                    step_dict[key] = self.update_input_file(file=self.state[step_id-1][key], ops=val)
-                else:
-                    step_dict[key] = vasp_file_registry[fn](contents_str=val)
-            logger.debug(f'Defined step {step_id}')
-            
-            # save step
-            self.state[step_id] = step_dict
-
-        # optional dos or band post-processing steps
-        try:
-            dos_dict: dict = self.steps_params['dos']
-            for fn, contents in dos_dict.items():
-                dos_dict[fn] = vasp_file_registry[fn](contents_str=contents)
-            self.state['dos'] = dos_dict
-        except:
-            pass
-
-        try:
-            bands_dict: dict = self.steps_params['bands']
-            for fn, contents in bands_dict.items():
-                bands_dict[fn] = vasp_file_registry[fn](contents_str=contents)
-            self.state['bands'] = bands_dict
-        except:
-            pass
+        self.calc_ids = ['calculation']
+        super().init_state()
 
     def build_directory(self):
         self.dir = next_path(self.parent_dir / 'individual')
         self.dir.mkdir()
+        self.state['calculation']['dir'] = self.dir
     
     def run_vasp(self):
-        super().run_vasp(self.dir)
-
+        super().run_vasp('calculation')
 
 @register_study
 class EosFit(Study):
     """Calculate energy for scaled up/down supercells and fit an E(V) equation of state."""
-    def __init__(self, input_yml):
-        # load restart file if it exists
+    def init_state(self):
+        # load restart file if it exists first to define skip_calc_ids
         try:
-            with open(Path(input_yml['study']['dir']) / 'eosfit.restart', 'r') as f:
-                self.finished_sfs = [val.strip() for val in f.readlines()]
-            if len(self.finished_sfs):
+            self.skip_calc_ids = []
+            with open(self.parent_dir / 'eosfit.restart', 'r') as f:
+                for l in f.readlines():
+                    self.skip_calc_ids.append(strip_split(l)[0])
+            self.skip_calc_ids = [float(sf) for sf in self.skip_calc_ids if sf != 'eq']
+            if len(self.skip_calc_ids):
                 self.restart = True
-                logger.debug(f'eosfit.restart found, restarting from scaling factor {self.finished_sfs[-1]}')
+                logger.debug(f'eosfit.restart found, restarting from scaling factor {self.skip_calc_ids[-1]}')
+            else:
+                self.restart = False
         except:
-            self.finished_sfs = []
             self.restart = False
-        
-        # finish initializing
-        super().__init__(input_yml)
+
+        # define state object
+        self.calc_ids = self.params['scaling']+['eq']
+        super().init_state()
+
+        # go through and update scaling factor for each first step POSCAR
+        for calc_id in self.calc_ids:
+            step_1_poscar: VaspPoscar = self.state[calc_id][1]['POSCAR']
+            if calc_id != 'eq':
+                step_1_poscar.update_scaling_factor(calc_id)
 
     def build_directory(self):
+        # determine path
         if self.restart:
             self.dir = Path(self.params['dir'])
         else:
@@ -235,46 +266,39 @@ class EosFit(Study):
             self.dir.mkdir()
             logger.debug(f'Generated study directory: {self.dir}')
         
-        for sf in self.params['scaling']:
-            # create subdirectory
-            subdir = self.dir / str(sf)
+        # create subdirectories
+        for calc_id in self.calc_ids:
+            subdir = self.dir / str(calc_id)
             subdir.mkdir(exist_ok=True)
-            # cleanup directory and input files and update POSCAR if sf has not already been run
-            if f'{sf:2f}' not in self.finished_sfs:
-                wipe_directory(subdir)
-                self.poscar.update_scaling_factor(sf)
-                self.write_input_files(subdir)
+            self.state[calc_id]['dir'] = subdir
 
-        # equilibrium subdirectory
-        subdir = self.dir / 'eq'
-        subdir.mkdir(exist_ok=True)
-        if 'eq' not in self.finished_sfs:
-            wipe_directory(subdir)
-            self.poscar.update_scaling_factor(1.0)
-            self.write_input_files(subdir)
-            
     def run_vasp(self):
-        # calculate energies for fitting
-        energies, volumes = [], []
-        for sf in self.params['scaling']:
-            # load input files in subdirectory
-            subdir = self.dir / str(sf)
-            self.load_input_files(subdir)
-            logger.debug(f"Loaded input files for scale factor {sf}")
-            # run vasp if it has not already been run
-            if f'{sf:2f}' not in self.finished_sfs:
-                super().run_vasp(self.steps_params, subdir)
-                with open(self.dir / 'eosfit.restart', 'a') as f:
-                    f.write(f'{sf:.2f}\n')
-            else:
-                logger.debug(f"Skipping calculations since {sf} has already run")
-            # get volume and energy
-            self.poscar.load_from_file(subdir / 'POSCAR')
-            volumes.append(self.poscar.volume)
-            logger.debug(f"Calculated volume: {self.poscar.volume}")
-            self.outcar = VaspOutcar(file_path = subdir / 'OUTCAR')
-            energies.append(self.outcar.get_energy())
-            logger.debug(f"Calculated energy: {self.outcar.get_energy()}")
+        volumes, energies = [], []
+        for calc_id in self.calc_ids[:-1]:
+            if calc_id == 'eq':
+                break
+
+            # run calculations
+            if calc_id not in self.skip_calc_ids:
+                super().run_vasp(calc_id)
+
+                poscar = VaspPoscar(file_path = self.state[calc_id]['dir'] / 'POSCAR')
+                outcar = VaspOutcar(file_path = self.state[calc_id]['dir'] / 'OUTCAR')
+                volume, energy = poscar.volume, outcar.get_energy()
+                volumes.append(volume)
+                energies.append(energy)
+
+                with open(self.dir / 'eosfit.restart', 'a') as restart:
+                    restart.write(f'{calc_id}\t{volume}\t{energy}\n')
+
+            # get volume and energy from restart file
+            elif calc_id in self.skip_calc_ids:
+                with open(self.dir / 'eosfit.restart', 'r') as restart:
+                    for line in restart.readlines():
+                        c_id, v, e = strip_split(line)
+                        if calc_id == float(c_id):
+                            volumes.append(float(v))
+                            energies.append(float(e))
 
         # fit EoS
         eos = EquationOfState(volumes, energies, eos='birchmurnaghan')
@@ -282,30 +306,39 @@ class EosFit(Study):
         eos.plot(self.dir / 'eos.png')
         logger.debug(f"Birch-Murnaghan EOS fitted")
         
-        # set up equilibrium volume supercell directory
-        subdir = self.dir / 'eq'
-        self.load_input_files(subdir)
-        eq_vol_factor = eq_vol / self.poscar.volume
-        eq_sf = eq_vol_factor**(1/3)
-        self.poscar.update_scaling_factor(eq_sf)
-        logger.debug(f"Loaded input files for equilibrium scale factor {eq_sf}")
+        # define eq calculation scaling factor
+        eq_sf = eq_vol**(1/3)
+        eq_poscar: VaspPoscar = self.state['eq'][1]['POSCAR']
+        eq_poscar.update_scaling_factor(eq_sf)
 
-        # calculate equilibrium energy
-        if 'eq' not in self.finished_sfs:
-            super().run_vasp(self.steps_params, subdir)
-            with open(self.dir / 'eosfit.restart', 'a') as f:
-                f.write(f'eq\n')
-        else:
-            logger.debug(f"Skipping equilibrium calculation since it has already run")
-        
+        # perform eq calculation
+        if 'eq' not in self.skip_calc_ids:
+                super().run_vasp('eq')
+
+                poscar = VaspPoscar(file_path = self.state['eq']['dir'] / 'POSCAR')
+                outcar = VaspOutcar(file_path = self.state['eq']['dir'] / 'OUTCAR')
+                eq_volume, eq_energy = poscar.volume, outcar.get_energy()
+
+                with open(self.dir / 'eosfit.restart', 'a') as restart:
+                    restart.write(f'eq\t{eq_volume}\t{eq_energy}\n')
+
+        # get volume and energy from restart file
+        elif 'eq' in self.skip_calc_ids:
+            with open(self.dir / 'eosfit.restart', 'r') as restart:
+                for line in restart.readlines():
+                    c_id, v, e = strip_split(line)
+                    if 'eq' == c_id:
+                        eq_volume, eq_energy = float(v), float(e)
+
         # print out data
-        self.outcar.load_from_file(subdir / 'OUTCAR')
         with open(self.dir / 'data.out', 'w') as d:
             d.write(f'Volumes: {[float(v) for v in volumes]}\n')
             d.write(f'Energies: {[float(e) for e in energies]}\n')
-            d.write(f'Equilibrium volume = {self.poscar.volume} A3\n')
-            d.write(f'Equilibrium energy = {self.outcar.get_energy()} eV\n')
-            d.write(f"Equilibrium lattice constant = {self.poscar.lattice_parameters['a']} A\n")
+            d.write(f'Equilibrium volume = {eq_volume} A3\n')
+            d.write(f'Equilibrium energy = {eq_energy} eV\n')
+            d.write(f"Equilibrium lattice parameters{poscar.lattice_parameters['a']} A\n")
+            d.write(f"\ta = {poscar.lattice_parameters['a']} A\n")
+            d.write(f"\tc = {poscar.lattice_parameters['c']} A\n")
             d.write(f'Bulk modulus: {bulk_mod / kJ * 1.0e24}')
         logger.debug(f"Printed fit data to {self.dir / 'data.out'}")
 

@@ -194,11 +194,14 @@ class VaspPoscar(VaspFile):
         self.lattice_parameters = {}
         if self.lattice_type in ['fcc_prim']:
             self.lattice_parameters['a'] = (4*self.volume)**(1/3)
+            self.lattice_parameters['c'] = self.lattice_parameters['a']
         elif self.lattice_type in ['bcc_conv', 'fcc_conv']:
             self.lattice_parameters['a'] = self.volume**(1/3)
+            self.lattice_parameters['c'] = self.lattice_parameters['a']
         elif self.lattice_type in ['fcc_super', 'bcc_super']:
             ax, bx, cx = self.supercell_shape
             self.lattice_parameters['a'] = (self.scale_factor*self.lattice_vectors)[0][0] / ax
+            self.lattice_parameters['c'] = self.lattice_parameters['a']
         elif self.lattice_type in ['tetr_super']:
             ax, bx, cx = self.supercell_shape
             self.lattice_parameters['a'] = (self.scale_factor*self.lattice_vectors)[0][0] / ax
@@ -370,10 +373,16 @@ class VaspDoscar(VaspFile):
     alias = 'DOSCAR'
     def plot(self, save_path: Path):
         """Plots the electron density of states."""
+        energy, dos = [], []
+        fermi_energy = strip_split(self.lines[5], item_type=float)[-2]
         for l in self.lines[6:]:
-            energy, dos, int_dos = strip_split(l, item_type=float)
-            plt.plot(energy, dos)
-            plt.savefig(save_path)
+            e, d, int_d = strip_split(l, item_type=float)
+            energy.append(e-fermi_energy)
+            dos.append(d)
+        plt.plot(energy, dos)
+        plt.xlabel('$E-E_F$ (eV)')
+        plt.ylabel('DOS')
+        plt.savefig(save_path)
 
 """
 class VaspPoscar(VaspText):
