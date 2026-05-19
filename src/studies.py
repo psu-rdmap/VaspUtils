@@ -51,8 +51,8 @@ class Study:
         # read in files from `calculations` section
         common_files: dict[str, VaspFile] = {}
         for key, val in self.calc_params.items():
-            if fn in ['INCAR', 'KPOINTS', 'POSCAR']:
-                common_files[fn] = vasp_file_registry[fn](contents_str=contents)
+            if key in ['INCAR', 'KPOINTS', 'POSCAR']:
+                common_files[key] = vasp_file_registry[key](contents_str=val)
 
         if 'POSCAR' not in common_files.keys():
             raise KeyError('No POSCAR found in the `calculations` section`. All calculations must share a common POSCAR file')
@@ -63,20 +63,34 @@ class Study:
         self.state['common'] = common_files
         logger.debug('Read in common VASP files from user input')
 
-        # steps for each calculation
+        # initialize steps for each calculation
         for calc_id in self.calc_ids:
             calc_dict: dict = self.state[calc_id]
-            steps_params: dict = deepcopy(calc_dict['step_params'])
+
+            # steps_params is either the same for all calculations or is defined for each one separately
+            if calc_id in self.steps_params.keys():
+                steps_params: dict = self.steps_params[calc_id]
+            else:
+                steps_params: dict = deepcopy(self.steps_params)
+
+            # define step dict for first step
             step_dict: dict = deepcopy(steps_params[step_id])
 
             # option to skip calculation
-            if calc_id in self.skip_calc_ids:
-                continue
+            #if calc_id in self.skip_calc_ids:
+            #    continue
 
             # add files shared by all calculations to first step (should be just a name at this point)
             for fn, file in self.state['common'].items():
                 if fn in ['INCAR', 'POSCAR', 'KPOINTS', 'POTCAR']:
                     step_dict[fn] = deepcopy(file)
+            
+            # add files specific to the calculation
+            if calc_id in self.calc_params.keys():
+                for fn, contents in self.calc_params[calc_id]:
+                    # delay defining POTCAR until POSCAR is available (i.e., after the previous calculation is run)
+                    if fn != 'POTCAR':
+                        step_dict[fn] = vasp_file_registry[fn](contents_str=contents)
 
             # save step
             calc_dict[1] = step_dict
@@ -89,6 +103,10 @@ class Study:
 
                 # replace file modifications with a VaspFile object
                 for key, val in step_dict.items():
+                    # only want VaspFiles
+                    if key == 'name':
+                        continue
+
                     # only INCAR and KPOINTS should be overwritten between steps
                     if key in ['POSCAR', 'POTCAR']:
                         raise KeyError('Steps may only modify INCAR and KPOINTS files')
@@ -104,21 +122,17 @@ class Study:
                     logger.debug(f'Defined step {step_id} for {calc_id}')
             
             # optional dos or band post-processing steps
-            try:
-                dos_dict: dict = self.steps_params['dos']
+            if 'dos' in steps_params.keys():
+                dos_dict: dict = steps_params['dos']
                 for fn, contents in dos_dict.items():
                     dos_dict[fn] = vasp_file_registry[fn](contents_str=contents)
                 calc_dict['dos'] = dos_dict
-            except:
-                pass
 
-            try:
-                bands_dict: dict = self.steps_params['bands']
+            if 'bands' in steps_params.keys():
+                bands_dict: dict = steps_params['bands']
                 for fn, contents in bands_dict.items():
                     bands_dict[fn] = vasp_file_registry[fn](contents_str=contents)
                 calc_dict['bands'] = bands_dict
-            except:
-                pass
 
             # save calculation
             self.state[calc_id] = calc_dict
@@ -234,7 +248,6 @@ class EosFit(Study):
     def init_state(self):
         # load restart file if it exists first to define skip_calc_ids
         try:
-            self.skip_calc_ids = []
             with open(self.parent_dir / 'eosfit.restart', 'r') as f:
                 for l in f.readlines():
                     self.skip_calc_ids.append(strip_split(l)[0])
@@ -472,102 +485,101 @@ class Benchmark(Study):
 
 @register_study
 class PointDefectFormation(Study):
-    """Calculate formation for a vacancy or self-interstitial."""
-    def init_input_files(self):
-        self.perfect_incar = VaspIncar(contents_str=self.calc_params['perfect']['INCAR'])
-        self.perfect_kpoints = VaspKPoints(contents_str=self.calc_params['perfect']['KPOINTS'])
-        try:
-            self.perfect_path = Path(self.params['perfect'])
-            self.perfect_poscar = VaspPoscar(file_path = Path(self.params['perfect']) / 'CONTCAR')
-        except:
-            self.perfect_path = None
-            self.perfect_poscar = VaspPoscar(contents_str=self.calc_params['POSCAR'])
-            logger.debug(f"Path to relaxed perfect system could not be found or was not provided")
-
-        self.defective_incar = VaspIncar(contents_str=self.calc_params['defective']['INCAR'])
-        self.defective_kpoints = VaspKPoints(contents_str=self.calc_params['defective']['KPOINTS'])
-        self.defective_poscar = VaspPoscar(contents_str=self.calc_params['POSCAR'])
-        
-        # only need one version to manage both systems
-        self.potcar = VaspPotcar(self.potcar_names, self.perfect_poscar)
-        logger.debug('Initialized VASP input file objects from user input')
-
-    def write_input_files(self, dir, system: str = None, overwrite_path=False):
-        if system == 'perfect':
-            self.perfect_incar.write_to_file(dir / 'INCAR', overwrite_path=overwrite_path)
-            self.perfect_kpoints.write_to_file(dir / 'KPOINTS', overwrite_path=overwrite_path)
-            self.perfect_poscar.write_to_file(dir / 'POSCAR', overwrite_path=overwrite_path)
-        elif system == 'defective':
-            self.defective_incar.write_to_file(dir / 'INCAR', overwrite_path=overwrite_path)
-            self.defective_kpoints.write_to_file(dir / 'KPOINTS', overwrite_path=overwrite_path)
-            self.defective_poscar.write_to_file(dir / 'POSCAR', overwrite_path=overwrite_path)
-
-        self.potcar.write_to_file(dir / 'POTCAR', overwrite_path=overwrite_path)
-
-    def build_directory(self):
-        """Subdirectories for the perfect and defective system."""
-        self.dir = next_path(self.parent_dir / (self.params['defect'] + '_formation'))
-        # perfect system
-        self.perfect_subdir = self.dir / 'perfect'
-        self.perfect_subdir.mkdir(parents=True)
-        self.write_input_files(self.perfect_subdir, system='perfect', overwrite_path=True)
-        # copy in OUTCAR if perfect system has already been relaxed
-        if self.perfect_path:          
-            perfect_outcar = VaspOutcar(file_path = self.perfect_path / 'OUTCAR')
-            perfect_outcar.write_to_file(self.perfect_subdir / 'OUTCAR')
-            logger.debug(f"Perfect system OUTCAR copied from {self.perfect_path / 'OUTCAR'}")
-        # insert the defect
-        defect_pos = np.array(self.params['position'])
-        if self.params['defect'] == 'vac':
-            self.defective_poscar.remove_ion(defect_pos, self.defective_incar)
-            logger.debug(f"Inserted vacancy near {str(defect_pos)}")
-        elif self.params['defect'] == 'sub':
-            rm_ion_pos = self.defective_poscar.remove_ion(defect_pos, self.defective_incar)
-            try:
-                magmom = self.params['magmom']
-            except:
-                magmom = None
-            self.defective_poscar.add_ion(self.params['species'], rm_ion_pos, self.defective_incar, magmom=magmom)
-            logger.debug(f"Inserted substitutional impurity near {str(defect_pos)}")
-        # adjust INCAR
-        self.defective_incar.update_tags([{'Add': f'ISYM = 0'}]) # disable symmetry
-        # update POTCAR in case species were added
-        self.potcar = VaspPotcar(self.potcar_names, self.defective_poscar)
-        # defective system
-        self.defective_subdir = self.dir / 'defective'
-        self.defective_subdir.mkdir()
-        self.write_input_files(self.defective_subdir, system='defective', overwrite_path=True)
+    """Calculate formation for a vacancy or substitutional impurity."""
+    def init_state(self):
+        self.calc_ids = ['perfect', 'defective']
+        super().init_state()
     
+    def build_directory(self):
+        self.dir = next_path(self.parent_dir / (self.params['defect'] + '_formation'))
+        self.dir.mkdir()
+
+        perfect_subdir = self.dir / 'perfect'
+        perfect_subdir.mkdir()
+        self.state['perfect']['dir'] = perfect_subdir
+
+        defective_subdir = self.dir / 'defective'
+        defective_subdir.mkdir()
+        self.state['defective']['dir'] = defective_subdir
+
     def run_vasp(self):
-        # relax perfect system (if necessary)
-        if self.perfect_path is None:
-            logger.debug(f"Relaxing perfect system...")
-            super().run_vasp(self.steps_params['perfect'], self.perfect_subdir)
-        else:
+        # obtain perfect system CONTCAR and OUTCAR first
+        try:
+            perfect_contcar = VaspContcar(file_path = Path(self.params['perfect']) / 'CONTCAR')
+            perfect_output_dir = Path(self.params['perfect'])
             logger.debug(f"Perfect system already relaxed. Skipping it.")
+        except:
+            logger.debug(f"Relaxing perfect system...")
+            super().run_vasp('perfect')
+            perfect_output_dir = self.state['perfect']['dir']
+        
+        perfect_contcar = VaspContcar(file_path = perfect_output_dir / 'CONTCAR')
+        perfect_outcar = VaspOutcar(file_path = perfect_output_dir / 'CONTCAR')
+
+        # update defective system POSCAR and grab INCAR
+        self.state['defective'][1]['POSCAR'] = perfect_contcar
+        defective_poscar: VaspPoscar = self.state['defective'][1]['POSCAR']
+        defective_incar: VaspIncar = self.state['defective'][1]['INCAR']
+
+        # insert defect
+        defect_pos = np.array(self.params['position'])
+
+        if self.params['defect'] == 'vac':
+            defective_poscar.remove_ion(defect_pos, defective_incar)
+            logger.debug(f"Inserted vacancy near {str(defect_pos)}")
+
+        elif self.params['defect'] == 'sub':
+            rm_ion_pos = defective_poscar.remove_ion(defect_pos, defective_incar)
+            if 'magmom' in self.params.keys():
+                magmom = self.params['magmom']
+            else:
+                magmom = None
+            defective_poscar.add_ion(self.params['species'], rm_ion_pos, defective_incar, magmom=magmom)
+            logger.debug(f"Inserted substitutional impurity near {str(defect_pos)}")
+        
+        # propogate MAGMOM updates through all steps if it was modified internally
+        if defective_incar.check_by_tag('MAGMOM'):
+            _, magmom_line = defective_incar.check_by_tag('MAGMOM')
+            num_steps = len([k for k in self.state['defective'].keys() if type(k) == int])
+            for step_id in range(2, num_steps+1):
+                step_incar: VaspIncar = self.state['defective'][step_id]['INCAR']
+                if step_incar.check_by_tag('MAGMOM'):
+                    self.update_input_file(step_incar, [{'Add': magmom_line}])
+        
+        # update POTCAR
+        if 'POTCAR' in self.calc_params['defective'].keys():
+            contents_str = self.calc_params['defective']['POTCAR']
+        else:
+            contents_str = self.calc_params['POTCAR']
+        self.state['defective'][1]['POTCAR'] = VaspPotcar(contents_str=contents_str, poscar=defective_poscar)
+
         # relax defective system
         logger.debug(f"Relaxing defective system...")
-        super().run_vasp(self.steps_params['defective'], self.defective_subdir)
+        super().run_vasp('defective')
+
         # extract energies
-        perfect_outcar = VaspOutcar(file_path = self.perfect_subdir / 'OUTCAR')
         perfect_energy = perfect_outcar.get_energy()
         logger.debug(f"Calculated perfect system energy: {perfect_energy} eV")
-        defective_outcar = VaspOutcar(file_path = self.defective_subdir / 'OUTCAR')
+
+        defective_outcar = VaspOutcar(file_path = self.state['defective']['dir'] / 'OUTCAR')
         defective_energy = defective_outcar.get_energy()
         logger.debug(f"Calculated defective system energy: {defective_energy} eV")
+
         # define chemical potential if it is not provided using E/N (bulk metals)
-        try:
+        if 'chemical_pot' in self.params.keys():
             chemical_pot = self.params['chemical_pot']
-        except:
-            num_species = len(self.perfect_poscar.get_species()[-1])
+        else:
+            num_species = len(perfect_contcar.get_species()[-1])
             chemical_pot = perfect_energy / num_species
         logger.debug(f"Defined chemical potential: {chemical_pot} eV")
+
         # calculate formation energy
         if self.params['defect'] == 'vac':
             formation_energy = defective_energy - perfect_energy + chemical_pot
         else:
             formation_energy = defective_energy - perfect_energy - chemical_pot
         logger.debug(f"Calculated defect formation energy: {formation_energy} eV")
+        
         # write data to a file
         with open(self.dir / 'data.out', 'w') as d:
             d.write(f'Perfect system energy: {perfect_energy} eV\n')

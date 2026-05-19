@@ -91,7 +91,7 @@ parameters:
 
 This study calculates the formation energy of a vacancy (`vac`) or substitutional impurity (`sub`).
 
-While the default behavior is to relax both the perfect and defective systems, most likely the perfect system has already been relaxed previously. In this case, the `perfect` parameter provides the path to the directory where VASP was run, containing the CONTCAR and OUTCAR files. Since the relaxed ion positions are already defined via the CONTCAR file, the `POSCAR` section is ignored and the defective system uses the found CONTCAR file. To use the default behavior (relaxing the perfect system first), simply exclude the `perfect` parameter from the input YAML file. Note, to maintain reproducibility, the perfect system parameters should be present even if it has been relaxed separately. Consistency between the input system and calculation parameters for the present input file and the imported directory are thus checked (not implemented yet) 
+While the default behavior is to relax both the perfect and defective systems, most likely the perfect system has already been relaxed previously. In this case, the `perfect` parameter provides the path to the directory where VASP was run, containing the CONTCAR and OUTCAR files. Since the relaxed ion positions are already defined via the CONTCAR file, the `POSCAR` section is ignored and the defective system uses the found CONTCAR file. To use the default behavior (relaxing the perfect system first), simply exclude the `perfect` parameter from the input YAML file. Note, to maintain reproducibility, the perfect system parameters should be present even if it has been relaxed separately. Consistency between the input system and calculation parameters for the present input file and the imported directory are thus checked (not implemented yet).
 
 For impurity defects, the element type of the impurity is provided by the `species` parameter. This is used to update the POSCAR species and to load a POTCAR for it. If a specific POTCAR is desired (e.g., X_sv), it can be included in the `POTCAR` section. Order does not matter. Additionally, if spin-polarization is turned on, the impurity initial magnetic moment can be provided via the `magmom` parameter.
 
@@ -148,6 +148,51 @@ steps:
                 ...
         ...
 ```
+
+
+```yaml
+study: 
+    name: <name of study>
+    dir: <full path to parent directory>
+    type: PointDefectFormation
+    perfect: <optional, path to already relaxed perfect system containing CONTCAR and OUTCAR>
+    defect: vac, sub
+    species: <optional, element of substitutional impurity>
+    magmom: <optional, initial magnetic moment for the substitutional impurity if doing spin-polarization>
+    position: <approximate location of site to insert defect at (e.g., 0.5 0.5 0.5)>
+    chemical_pot: <optional, value of chemical potential (eV) for point defect>
+
+calculations:
+    POSCAR: |
+        ...
+    POTCAR: |
+        ...
+
+    perfect:
+        INCAR: |
+            ...
+        KPOINTS: |
+            ...
+
+    defective:
+        INCAR: |
+            ...
+        KPOINTS: |
+            ...
+    
+steps:
+    1:
+        name: <descriptive name of step 1>
+        INCAR:
+        - Add: <tag definition to add or overwrite>
+        - Remove: <tag to remove>
+    2:
+        name: <descriptive name of step 1>
+        INCAR:
+            ...
+    ...
+```
+
 # Calculating Density of States and Band Structure
 
 Every study has the option to add some post-processing steps which calculate and plot the electron density of states and band structure for a given calculation. This is achieved by enabling the `dos` and `bands` study parameters, then including the corresponding input files that will be executed in the `calculations` section.
