@@ -8,10 +8,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from copy import deepcopy
+from py4vasp import Calculation
 
 logger = logging.getLogger('VaspUtils')
 logging.getLogger("matplotlib").setLevel(logging.FATAL)
 logging.getLogger("ase").setLevel(logging.FATAL)
+logging.getLogger("py4vasp").setLevel(logging.FATAL)
 
 class Study:
     """Baseclass for a DFT study which consists of at least one calculation."""
@@ -207,8 +209,10 @@ class Study:
             logger.debug(f'DOS input files provided. Doing calculation...')
             with open(run_dir / 'vasp.out', 'a') as vasp_out:
                 vasp = subprocess.run(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
-            doscar = VaspDoscar(file_path=run_dir / 'DOSCAR')
-            doscar.plot(run_dir / 'dos.png')
+            dos = Calculation.from_path(calc_dict[dir])
+            dos_plot = dos.dos.plot()
+            plt.savefig("dos.png", dpi=300, bbox_inches="tight")
+            plt.close()
             logger.debug(f'DOS calculation done')
         else:
             logger.debug(f'Skipping DOS calculation')
@@ -218,6 +222,10 @@ class Study:
             logger.debug(f'Band structure input files provided. Doing calculation...')
             with open(run_dir / 'vasp.out', 'a') as vasp_out:
                 vasp = subprocess.run(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
+            band = Calculation.from_path(calc_dict[dir])
+            band_plot = band.band.plot()
+            plt.savefig("bands.png", dpi=300, bbox_inches="tight")
+            plt.close()
             logger.debug(f'Band structure calculation done')
         else:
             logger.debug(f'Skipping band structure calculation')
