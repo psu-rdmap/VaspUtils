@@ -28,6 +28,7 @@ class Study:
 
         # define state dictionary organizing calculations and steps
         self.state, self.calc_ids, self.skip_calc_ids = {}, [], []
+        logger.debug(f'Initializing state...')
         self.init_state()
 
     def update_input_file(self, file: VaspFile, ops: list[dict]):
@@ -54,10 +55,10 @@ class Study:
             if key in ['INCAR', 'KPOINTS', 'POSCAR']:
                 common_files[key] = vasp_file_registry[key](contents_str=val)
 
-        if 'POSCAR' not in common_files.keys():
+        if 'POSCAR' not in self.calc_params.keys():
             raise KeyError('No POSCAR found in the `calculations` section`. All calculations must share a common POSCAR file')
 
-        if 'POTCAR' in common_files.keys():
+        if 'POTCAR' in self.calc_params.keys():
             common_files['POTCAR'] = VaspPotcar(contents_str=self.calc_params['POTCAR'], poscar=common_files['POSCAR'])
 
         self.state['common'] = common_files
@@ -74,7 +75,7 @@ class Study:
                 steps_params: dict = deepcopy(self.steps_params)
 
             # define step dict for first step
-            step_dict: dict = deepcopy(steps_params[step_id])
+            step_dict: dict = deepcopy(steps_params[1])
 
             # option to skip calculation
             #if calc_id in self.skip_calc_ids:
@@ -201,24 +202,24 @@ class Study:
                 yaml.dump(self.input_yml, f)
         
         # special steps at the end
-        try:
-            self.write_input_files(calc_id['dos'], run_dir)
+        if 'dos' in calc_dict.keys():
+            self.write_input_files(calc_dict['dos'], run_dir)
             logger.debug(f'DOS input files provided. Doing calculation...')
             with open(run_dir / 'vasp.out', 'a') as vasp_out:
                 vasp = subprocess.run(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
             doscar = VaspDoscar(file_path=run_dir / 'DOSCAR')
             doscar.plot(run_dir / 'dos.png')
             logger.debug(f'DOS calculation done')
-        except:
+        else:
             logger.debug(f'Skipping DOS calculation')
 
-        try:
-            self.write_input_files(calc_id['bands'], run_dir)
+        if 'bands' in calc_dict.keys():
+            self.write_input_files(calc_dict['bands'], run_dir)
             logger.debug(f'Band structure input files provided. Doing calculation...')
             with open(run_dir / 'vasp.out', 'a') as vasp_out:
                 vasp = subprocess.run(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
             logger.debug(f'Band structure calculation done')
-        except:
+        else:
             logger.debug(f'Skipping band structure calculation')
 
 study_registry: dict[str, Study] = {}
@@ -354,134 +355,6 @@ class EosFit(Study):
             d.write(f"\tc = {poscar.lattice_parameters['c']} A\n")
             d.write(f'Bulk modulus: {bulk_mod / kJ * 1.0e24}')
         logger.debug(f"Printed fit data to {self.dir / 'data.out'}")
-
-@register_study
-class Benchmark(Study): 
-    """Benchmark KPAR and NCORE for a given test system."""
-    def __init__(self, input_yml):
-        super().__init__(input_yml)
-        # determine allowable KPAR and corresponding NCORE values
-        self.cores = min(self.params['cores'], 48)
-        self.kpar: dict[int, list[int]] = {}
-        logger.debug(f"Determining valid KPAR, NCORE combinations...")
-        for k in range(1, self.params['max_kpar']+1):
-            # allowable kpoint -> ncore_per_kpoint must be integer
-            ncore_per_kpoint = self.cores / k
-            if ncore_per_kpoint % 1 != 0:
-                continue
-            # allowable ncore -> ncore_per_band must be integer
-            ncore = []
-            for n in range(1, self.cores+1):
-                ncore_per_band = ncore_per_kpoint / n
-                if ncore_per_band % 1 == 0:
-                    ncore.append(n)
-            self.kpar[k] = ncore
-            logger.debug(f"KPAR={k} works for NCORE={ncore}")
-        
-        # define job files lines
-        max_time = self.params['max_time']
-        max_time_str = f"{int(max_time/3600):02d}:{int((max_time/60)%60):02d}:{int(max_time%60):02d}"
-        self.job = [
-            "#!/bin/bash\n",
-            f"#SBATCH --account={self.params['account']}\n",
-            f"#SBATCH --nodes=1\n",
-            f"#SBATCH --ntasks={self.params['cores']}\n",
-            f"#SBATCH --mem-per-cpu=8GB\n",
-            f"#SBATCH --time={max_time_str}\n",
-            f"SECONDS=0\n",
-            f"cd PATH\n",
-            f"srun --export=ALL --kill-on-bad-exit --cpu-bind=cores vasp_std > vasp.out\n",
-            f"ELAPSED=$SECONDS\n",
-            f"echo $ELAPSED > time.out\n",
-        ]
-            
-    def build_directory(self):
-        """Subdirectories for each KPAR and NCORE calculation."""
-        # top level directory
-        self.dir_path = next_path(self.parent_dir_path / 'benchmark')
-        self.dir_path.mkdir(exist_ok=True)
-        # individual KPAR=K and NCORE=N directories
-        for k, n_list in self.kpar.items():
-            n_subdir_paths: dict[int, str] = {}
-            for n in n_list:
-                subdir_path = self.dir_path / f"KPAR={k}" / f"NCORE={n}"
-                subdir_path.mkdir(parents=True)
-                self.update_input_file('INCAR', [{'Add': f'KPAR = {k}'}, {'Add': f'NCORE = {n}'}])
-                self.write_input_files(subdir_path)
-                # update path in job file and write it
-                self.job[7] = f"cd '{subdir_path}'\n"
-                with open(subdir_path / 'run', 'w') as r:
-                    r.writelines(self.job)
-                n_subdir_paths[n] = subdir_path
-            self.subdir_paths[k] = n_subdir_paths
-
-    def run_vasp(self):
-        """Schedule all jobs, wait until they are done, and extract elapsed time."""
-        # submit jobs and increment counter
-        num_unfinished_jobs = 0
-        times: dict[int, dict[int, int]] = {}
-        for k, n_list in self.kpar.items():
-            n_times: dict[int, int] = {}
-            for n in n_list:
-                run_path: Path = self.subdir_paths[k][n] / 'run'
-                vasp = subprocess.Popen(f"sbatch run", cwd=run_path.parent, stderr=subprocess.STDOUT)
-                logger.debug(f"Submitted VASP job in {run_path}")
-                num_unfinished_jobs += 1
-                n_times[n] = 0
-            times[k] = n_times
-
-        # wait until all jobs are finished
-        times = {}
-        while num_unfinished_jobs:
-            for k, n_list in self.kpar.items():
-                for n in n_list:
-                    check_fp: Path = self.subdir_paths[k][n] / 'time.out'
-                    # VASP finished -> time.out created and the elapsed wall time is available
-                    if check_fp.exists():
-                        num_unfinished_jobs -= 1
-                        with open(check_fp, 'r') as t:
-                            time_line = t.readline()
-                        elapsed = strip_split(time_line, '=')[-1]
-                        times[k][n] = elapsed
-                        logger.debug(f"({num_unfinished_jobs}) Job at {check_fp} finished. Wall time = {elapsed}s")
-                    else:
-                        time.sleep(1)
-
-        # write times to an output file
-        times_df = pd.DataFrame(times)
-        with open(self.parent_dir_path / 'times.dat', 'w') as d:
-            print(times_df, file=d)
-        logger.debug(f"Wrote simulation times at {self.parent_dir_path / 'times.dat'}")
-
-        # plot NCORE on x-axis, time on y-axis, and KPAR as different series
-        baseline = times[1][1]
-        for k, n_times in times.items():
-            x, y = [], []
-            for n, t in n_times.items():
-                x.append(n)
-                y.append(t / baseline)
-            plt.plot(x, y, label=f'KPAR={k}')
-        plt.xlabel('NCORE')
-        plt.ylabel('Calculation Time (rel.)')
-        plt.savefig(self.parent_dir_path / 'times.png')
-        plt.close()
-        logger.debug(f"Plotted NCORE and KPAR values and saved figure at {self.parent_dir_path / 'times.png'}")
-
-        # plot best NCORE and KPAR
-        x, y = [], []
-        for k in times.keys():
-            x.append(k)
-            y.append(times_df[k].min() / baseline)
-        plt.plot(x, y, label='KPAR')
-        x, y = [], []
-        for n in times[1].keys():
-            x.append(n)
-            y.append(times_df.loc[k].min() / baseline)
-        plt.plot(x, y, label='NCORE')
-        plt.xlabel('Tag Value')
-        plt.ylabel('Best Calculation Time (rel.)')
-        plt.savefig(self.parent_dir_path / 'best_times.png')
-        logger.debug(f"Plotted best NCORE and KPAR values and saved figure at {self.parent_dir_path / 'best_times.png'}")
 
 @register_study
 class PointDefectFormation(Study):
