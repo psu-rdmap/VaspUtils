@@ -209,9 +209,9 @@ class Study:
             logger.debug(f'DOS input files provided. Doing calculation...')
             with open(run_dir / 'vasp.out', 'a') as vasp_out:
                 vasp = subprocess.run(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
-            dos = Calculation.from_path(calc_dict[dir])
+            dos = Calculation.from_path(calc_dict['dir'])
             dos_plot = dos.dos.plot()
-            plt.savefig("dos.png", dpi=300, bbox_inches="tight")
+            plt.savefig(calc_dict['dir'] / "dos.png", dpi=300, bbox_inches="tight")
             plt.close()
             logger.debug(f'DOS calculation done')
         else:
@@ -222,9 +222,9 @@ class Study:
             logger.debug(f'Band structure input files provided. Doing calculation...')
             with open(run_dir / 'vasp.out', 'a') as vasp_out:
                 vasp = subprocess.run(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
-            band = Calculation.from_path(calc_dict[dir])
+            band = Calculation.from_path(calc_dict['dir'])
             band_plot = band.band.plot()
-            plt.savefig("bands.png", dpi=300, bbox_inches="tight")
+            plt.savefig(calc_dict['dir'] / "bands.png", dpi=300, bbox_inches="tight")
             plt.close()
             logger.debug(f'Band structure calculation done')
         else:
