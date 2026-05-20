@@ -1,7 +1,7 @@
 from vasp_file import vasp_file_registry, VaspFile, VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar, VaspDoscar
 from utils import next_path, wipe_directory, strip_split
 from pathlib import Path
-import subprocess, time, logging, yaml
+import subprocess, time, logging, yaml, json
 from ase.eos import EquationOfState
 from ase.units import kJ
 import matplotlib.pyplot as plt
@@ -202,34 +202,92 @@ class Study:
             # write out input YAML for reference
             with open(run_dir / 'input.yml', 'w') as f:
                 yaml.dump(self.input_yml, f)
-        
-        # special steps at the end
-        if 'dos' in calc_dict.keys():
-            self.write_input_files(calc_dict['dos'], run_dir)
-            logger.debug(f'DOS input files provided. Doing calculation...')
+
+        def do_post_process_step(name: str):
+            # overwrite INCAR and KPOINTS, then run VASP
+            self.write_input_files(calc_dict[name], run_dir)
+            if name == 'dos':
+                logger.debug(f'DOS input files provided. Doing calculation...')
+                save_dir: Path = calc_dict['dir'] / 'dos'
+            elif name == 'band':
+                logger.debug(f'Band structure input files provided. Doing calculation...')
+                save_dir: Path = calc_dict['dir'] / 'bands'
+
             with open(run_dir / 'vasp.out', 'a') as vasp_out:
                 vasp = subprocess.run(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
-            dos = Calculation.from_path(calc_dict['dir'])
-            dos_plot = dos.dos.plot()
-            plt.savefig(calc_dict['dir'] / "dos.png", dpi=300, bbox_inches="tight")
-            plt.close()
-            logger.debug(f'DOS calculation done')
+
+            # obtain plots and data via Py4Vasp
+            p4v_calc = Calculation.from_path(calc_dict['dir'])
+            data = getattr(p4v_calc, name)
+            plot_data: dict = data.read()
+
+            # convert np.ndarrays to lists for json
+            for key, val in plot_data.items():
+                if type(val) == np.ndarray:
+                    plot_data[key] = val.tolist()
+
+            # write out plot data and save plot
+            save_dir.mkdir()
+            with open(save_dir / f'{name}_data.json', 'w') as f:
+                json.dump(plot_data, f)
+
+            fig = data.plot().to_plotly()
+            fig.write_html(save_dir / f'{name}_plot.html')
+
+            # also write out png version with matplotlib (plotly.write_image requires chrome)
+            if name == 'band':
+                num_bands = len(plot_data['bands'][0])
+                bands = [[] for b in range(num_bands)]
+
+                for kpoint in plot_data['bands']:
+                    for band_idx, band_e in enumerate(kpoint):
+                        bands[band_idx].append(band_e)
+                            
+                xticks = []
+                xlabels = []
+                for i, d in enumerate(plot_data['kpoint_distances']):
+                    k = plot_data['kpoint_labels'][i]
+                    if len(k):
+                        xticks.append(d)
+                        xlabels.append(k)
+                for band in bands:
+                    if band[0] > 0:
+                        color = 'maroon'
+                    else:
+                        color = 'darkblue'
+                    plt.plot(plot_data['kpoint_distances'], band, lw=1, color=color)
+                    plt.xticks(xticks, xlabels)
+                plt.ylabel('Energy (eV)')
+                plt.savefig(save_dir / f'{name}_plot.png', dpi=500)
+                plt.close()
+            elif name == 'dos':
+                pass
+
+        # special steps at the end
+        do_dos = False
+        if 'dos' in calc_dict.keys():
+            do_dos = True
+            do_post_process_step('dos')
         else:
             logger.debug(f'Skipping DOS calculation')
-
+        
         if 'bands' in calc_dict.keys():
-            self.write_input_files(calc_dict['bands'], run_dir)
-            logger.debug(f'Band structure input files provided. Doing calculation...')
-            with open(run_dir / 'vasp.out', 'a') as vasp_out:
-                vasp = subprocess.run(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
-            band = Calculation.from_path(calc_dict['dir'])
-            band_plot = band.band.plot()
-            plt.savefig(calc_dict['dir'] / "bands.png", dpi=300, bbox_inches="tight")
-            plt.close()
-            logger.debug(f'Band structure calculation done')
+            # make sure LWAVE and LCHARG are false in DOS INCAR to prevent changing state after DOS calculation
+            if do_dos:
+                dos_incar: VaspIncar = calc_dict['dos']['INCAR']
+
+                lwave_line = dos_incar.check_by_tag('LWAVE')
+                if lwave_line is None:
+                    raise Warning('DOS INCAR is missing `LWAVE = .FALSE.` WAVECAR may have updated during the DOS calculation')
+                
+                lcharg_line = dos_incar.check_by_tag('LCHARG')
+                if lcharg_line is None:
+                    raise Warning('DOS INCAR is missing `LCHARG = .FALSE.` CHGCAR may have updated during the DOS calculation')
+                
+            do_post_process_step('band')
         else:
             logger.debug(f'Skipping band structure calculation')
-
+           
 study_registry: dict[str, Study] = {}
 def register_study(cls):
     """Registry enrollment so that Study subclasses can be instantiated by string name."""
