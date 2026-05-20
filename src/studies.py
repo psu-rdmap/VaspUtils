@@ -131,11 +131,11 @@ class Study:
                     dos_dict[fn] = vasp_file_registry[fn](contents_str=contents)
                 calc_dict['dos'] = dos_dict
 
-            if 'bands' in steps_params.keys():
-                bands_dict: dict = steps_params['bands']
-                for fn, contents in bands_dict.items():
-                    bands_dict[fn] = vasp_file_registry[fn](contents_str=contents)
-                calc_dict['bands'] = bands_dict
+            if 'band' in steps_params.keys():
+                band_dict: dict = steps_params['band']
+                for fn, contents in band_dict.items():
+                    band_dict[fn] = vasp_file_registry[fn](contents_str=contents)
+                calc_dict['band'] = band_dict
 
             # save calculation
             self.state[calc_id] = calc_dict
@@ -211,7 +211,7 @@ class Study:
                 save_dir: Path = calc_dict['dir'] / 'dos'
             elif name == 'band':
                 logger.debug(f'Band structure input files provided. Doing calculation...')
-                save_dir: Path = calc_dict['dir'] / 'bands'
+                save_dir: Path = calc_dict['dir'] / 'band'
 
             with open(run_dir / 'vasp.out', 'a') as vasp_out:
                 vasp = subprocess.run(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
@@ -250,12 +250,12 @@ class Study:
                     if len(k):
                         xticks.append(d)
                         xlabels.append(k)
-                for band in bands:
-                    if band[0] > 0:
+                for b in bands:
+                    if b[0] > 0:
                         color = 'maroon'
                     else:
                         color = 'darkblue'
-                    plt.plot(plot_data['kpoint_distances'], band, lw=1, color=color)
+                    plt.plot(plot_data['kpoint_distances'], b, lw=1, color=color)
                     plt.xticks(xticks, xlabels)
                 plt.ylabel('Energy (eV)')
                 plt.savefig(save_dir / f'{name}_plot.png', dpi=500)
@@ -271,7 +271,7 @@ class Study:
         else:
             logger.debug(f'Skipping DOS calculation')
         
-        if 'bands' in calc_dict.keys():
+        if 'band' in calc_dict.keys():
             # make sure LWAVE and LCHARG are false in DOS INCAR to prevent changing state after DOS calculation
             if do_dos:
                 dos_incar: VaspIncar = calc_dict['dos']['INCAR']
