@@ -221,7 +221,7 @@ steps:
 
 # Special steps: density of states and band structure
 
-Every calculation as the option to add some post-processing steps which calculate and plot the electron density of states (eDOS) and/or band structure. This is achieved by providing the `dos` and `bands` steps, following the same structure described in previous sections. In either case, entire `INCAR` and `KPOINTS` files must be provided, since these steps can be very specific.
+Every calculation as the option to add some post-processing steps which calculate and plot the electron density of states (eDOS) and/or band structure. This is achieved by providing the `dos` and `band` steps, following the same structure described in previous sections. In either case, entire `INCAR` and `KPOINTS` files must be provided, since these steps can be very specific.
 
 ```yaml
 study:
@@ -245,7 +245,7 @@ calculations:
         KPOINTS: |
             ...
     
-    bands:
+    band:
         INCAR: |
             ...
         KPOINTS: |
@@ -264,7 +264,7 @@ steps:
         KPOINTS: |
             ...
     
-    bands:
+    band:
         KPOINTS_OPT: |
             ...
 ```

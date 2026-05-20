@@ -258,10 +258,14 @@ class Study:
                     plt.plot(plot_data['kpoint_distances'], b, lw=1, color=color)
                     plt.xticks(xticks, xlabels)
                 plt.ylabel('Energy (eV)')
-                plt.savefig(save_dir / f'{name}_plot.png', dpi=500)
-                plt.close()
+
             elif name == 'dos':
-                pass
+                plt.plot(plot_data['energies'], plot_data['total'])
+                plt.xlabel('Energy (eV)')
+                plt.ylabel('DOS')
+
+            plt.savefig(save_dir / f'{name}_plot.png', dpi=500)
+            plt.close()
 
         # special steps at the end
         do_dos = False
