@@ -1,11 +1,10 @@
-from vasp_file import vasp_file_registry, VaspFile, VaspIncar, VaspPoscar, VaspKPoints, VaspPotcar, VaspOutcar, VaspContcar, VaspDoscar
-from utils import next_path, wipe_directory, strip_split
+from vasp_file import vasp_file_registry, VaspFile, VaspIncar, VaspPoscar, VaspPotcar, VaspOutcar, VaspContcar
+from utils import next_path, strip_split
 from pathlib import Path
 import subprocess, time, logging, yaml, json
 from ase.eos import EquationOfState
 from ase.units import kJ
 import matplotlib.pyplot as plt
-import pandas as pd
 import numpy as np
 from copy import deepcopy
 from py4vasp import Calculation
@@ -68,7 +67,7 @@ class Study:
 
         # initialize steps for each calculation
         for calc_id in self.calc_ids:
-            calc_dict: dict = self.state[calc_id]
+            calc_dict: dict = deepcopy(self.state[calc_id])
 
             # steps_params is either the same for all calculations or is defined for each one separately
             if calc_id in self.steps_params.keys():
@@ -79,10 +78,6 @@ class Study:
             # define step dict for first step
             step_dict: dict = deepcopy(steps_params[1])
 
-            # option to skip calculation
-            #if calc_id in self.skip_calc_ids:
-            #    continue
-
             # add files shared by all calculations to first step (should be just a name at this point)
             for fn, file in self.state['common'].items():
                 if fn in ['INCAR', 'POSCAR', 'KPOINTS', 'POTCAR']:
@@ -90,7 +85,7 @@ class Study:
             
             # add files specific to the calculation
             if calc_id in self.calc_params.keys():
-                for fn, contents in self.calc_params[calc_id]:
+                for fn, contents in self.calc_params[calc_id].items():
                     # delay defining POTCAR until POSCAR is available (i.e., after the previous calculation is run)
                     if fn != 'POTCAR':
                         step_dict[fn] = vasp_file_registry[fn](contents_str=contents)
@@ -193,6 +188,7 @@ class Study:
                         f.write(f'{i}\n\n')
                         f.writelines([l+'\n' for l in contcar.lines])
                         f.write('\n')
+                        i += 1
                 vasp.wait()
                 vasp_out.close()
 
@@ -457,11 +453,12 @@ class PointDefectFormation(Study):
             perfect_output_dir = self.state['perfect']['dir']
         
         perfect_contcar = VaspContcar(file_path = perfect_output_dir / 'CONTCAR')
-        perfect_outcar = VaspOutcar(file_path = perfect_output_dir / 'CONTCAR')
+        perfect_outcar = VaspOutcar(file_path = perfect_output_dir / 'OUTCAR')
 
         # update defective system POSCAR and grab INCAR
-        self.state['defective'][1]['POSCAR'] = perfect_contcar
-        defective_poscar: VaspPoscar = self.state['defective'][1]['POSCAR']
+        defective_poscar = deepcopy(perfect_contcar)
+        defective_poscar.path = self.state['defective']['dir'] / 'POSCAR'
+        self.state['defective'][1]['POSCAR'] = defective_poscar
         defective_incar: VaspIncar = self.state['defective'][1]['INCAR']
 
         # insert defect
@@ -515,6 +512,13 @@ class PointDefectFormation(Study):
             num_species = len(perfect_contcar.get_species()[-1])
             chemical_pot = perfect_energy / num_species
         logger.debug(f"Defined chemical potential: {chemical_pot} eV")
+
+        # define finite-size correction term if it is not provided as 0
+        if 'fs_correction' in self.params.keys():
+            fs_correction = self.params['fs_correction']
+        else:
+            fs_correction = 0 
+        logger.debug(f"Defined finite-size energy correction: {fs_correction} eV")
 
         # calculate formation energy
         if self.params['defect'] == 'vac':
