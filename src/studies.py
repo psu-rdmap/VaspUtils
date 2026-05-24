@@ -157,7 +157,7 @@ class Study:
 
             # run vasp in the background
             vasp_out = open(run_dir / 'vasp.out', 'a')
-            vasp_cmd = ['srun', '--kill-on-bad-exit', '--cpu-bind=cores', 'vasp_std']
+            vasp_cmd = ['srun', '--export=ALL', '--kill-on-bad-exit', '--cpu-bind=cores', 'vasp_std']
             vasp = subprocess.Popen(vasp_cmd, cwd=run_dir, stdout=vasp_out, stderr=subprocess.STDOUT)
             logger.debug(f'VASP launched')
 
